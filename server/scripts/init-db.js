@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const pool = new Pool({
@@ -11,9 +12,16 @@ async function initializeDatabase() {
   try {
     console.log('Initializing database...');
     
+    // Generate proper bcrypt hash for admin123
+    const adminPassword = 'admin123';
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    
     // Read and execute schema
     const schemaPath = path.join(__dirname, '../database/schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf8');
+    let schema = fs.readFileSync(schemaPath, 'utf8');
+    
+    // Replace placeholder hash with actual hash
+    schema = schema.replace('$2b$10$K8jrQZQXQXQXQXQXQXQXQeJ8jrQZQXQXQXQXQXQXQeJ8jrQZQXQXQX', hashedPassword);
     
     await pool.query(schema);
     
