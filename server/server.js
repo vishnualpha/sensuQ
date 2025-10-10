@@ -83,7 +83,6 @@ io.on('connection', (socket) => {
 global.activeCrawlers = activeCrawlers;
 
 // Import crawler routes after activeCrawlers is defined
-const crawlerRoutes = require('./routes/crawler');
 app.use('/api/crawler', authenticateToken, crawlerRoutes);
 
 const PORT = process.env.PORT || 3001;
