@@ -270,6 +270,223 @@ class PlaywrightCrawler {
     }
   }
 
+  async performBasicInteractions(page, url) {
+    try {
+      logger.info(`Performing basic interactions for ${url}`);
+      
+      // Handle popups and modals first
+      await this.handlePopupsAndModals(page);
+      
+      // Look for continuation buttons
+      await this.clickContinuationButtons(page);
+      
+      // Wait a bit for any dynamic content to load
+      await page.waitForTimeout(2000);
+      
+    } catch (error) {
+      logger.warn(`Basic interactions failed for ${url}: ${error.message}`);
+    }
+  }
+
+  async handlePopupsAndModals(page) {
+    try {
+      logger.info('Checking for popups and modals to dismiss...');
+      
+      // Common popup/modal close selectors
+      const closeSelectors = [
+        // Generic close buttons
+        '[class*="close"]',
+        '[class*="dismiss"]',
+        '[class*="cancel"]',
+        '[data-dismiss]',
+        '[aria-label*="close" i]',
+        '[aria-label*="dismiss" i]',
+        '[title*="close" i]',
+        
+        // Common modal close patterns
+        '.modal-close',
+        '.popup-close',
+        '.dialog-close',
+        '.overlay-close',
+        
+        // Icon-based close buttons
+        '[class*="icon-close"]',
+        '[class*="icon-x"]',
+        '[class*="fa-times"]',
+        '[class*="fa-close"]',
+        
+        // Text-based close buttons
+        'button:has-text("Close")',
+        'button:has-text("×")',
+        'button:has-text("✕")',
+        'a:has-text("Close")',
+        'span:has-text("×")',
+        
+        // Common website-specific patterns
+        '[data-testid*="close"]',
+        '[data-cy*="close"]',
+        '[id*="close"]',
+        '[class*="btn-close"]'
+      ];
+      
+      // Try to close any visible popups/modals
+      for (const selector of closeSelectors) {
+        try {
+          const elements = await page.$$(selector);
+          for (const element of elements) {
+            const isVisible = await element.isVisible();
+            if (isVisible) {
+              await element.click();
+              logger.info(`Closed popup/modal using selector: ${selector}`);
+              await page.waitForTimeout(1000); // Wait for animation
+              break; // Only close one at a time
+            }
+          }
+        } catch (error) {
+          // Continue to next selector if this one fails
+          continue;
+        }
+      }
+      
+      // Handle cookie consent banners
+      await this.handleCookieConsent(page);
+      
+      // Handle notification permission requests
+      await this.handleNotificationRequests(page);
+      
+    } catch (error) {
+      logger.warn(`Error handling popups and modals: ${error.message}`);
+    }
+  }
+
+  async handleCookieConsent(page) {
+    try {
+      const cookieSelectors = [
+        'button:has-text("Accept")',
+        'button:has-text("Accept All")',
+        'button:has-text("I Accept")',
+        'button:has-text("OK")',
+        'button:has-text("Got it")',
+        'button:has-text("Continue")',
+        '[class*="cookie"] button',
+        '[class*="consent"] button',
+        '[id*="cookie"] button',
+        '[data-testid*="cookie"] button'
+      ];
+      
+      for (const selector of cookieSelectors) {
+        try {
+          const element = await page.$(selector);
+          if (element && await element.isVisible()) {
+            await element.click();
+            logger.info(`Accepted cookies using selector: ${selector}`);
+            await page.waitForTimeout(1000);
+            break;
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+    } catch (error) {
+      logger.warn(`Error handling cookie consent: ${error.message}`);
+    }
+  }
+
+  async handleNotificationRequests(page) {
+    try {
+      const notificationSelectors = [
+        'button:has-text("Not Now")',
+        'button:has-text("Maybe Later")',
+        'button:has-text("No Thanks")',
+        'button:has-text("Skip")',
+        '[class*="notification"] button:has-text("Close")',
+        '[class*="notification"] button:has-text("×")'
+      ];
+      
+      for (const selector of notificationSelectors) {
+        try {
+          const element = await page.$(selector);
+          if (element && await element.isVisible()) {
+            await element.click();
+            logger.info(`Dismissed notification using selector: ${selector}`);
+            await page.waitForTimeout(1000);
+            break;
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+    } catch (error) {
+      logger.warn(`Error handling notification requests: ${error.message}`);
+    }
+  }
+
+  async clickContinuationButtons(page) {
+    try {
+      logger.info('Looking for continuation buttons...');
+      
+      const continuationSelectors = [
+        // Generic continuation buttons
+        'button:has-text("Continue")',
+        'button:has-text("Next")',
+        'button:has-text("Proceed")',
+        'button:has-text("Get Started")',
+        'button:has-text("Start")',
+        'button:has-text("Begin")',
+        'button:has-text("Explore")',
+        'button:has-text("View More")',
+        'button:has-text("Load More")',
+        'button:has-text("Show More")',
+        
+        // Link-style continuations
+        'a:has-text("Continue")',
+        'a:has-text("Next")',
+        'a:has-text("Explore")',
+        'a:has-text("View All")',
+        'a:has-text("See More")',
+        
+        // Common class-based patterns
+        '[class*="continue"]',
+        '[class*="next"]',
+        '[class*="proceed"]',
+        '[class*="cta"]', // Call to action
+        '[class*="primary-btn"]',
+        
+        // Data attribute patterns
+        '[data-testid*="continue"]',
+        '[data-testid*="next"]',
+        '[data-cy*="continue"]'
+      ];
+      
+      for (const selector of continuationSelectors) {
+        try {
+          const elements = await page.$$(selector);
+          for (const element of elements) {
+            const isVisible = await element.isVisible();
+            const isEnabled = await element.isEnabled();
+            
+            if (isVisible && isEnabled) {
+              // Check if clicking this might navigate to a new page
+              const href = await element.getAttribute('href');
+              const onclick = await element.getAttribute('onclick');
+              
+              if (href || onclick || await element.evaluate(el => el.tagName === 'BUTTON')) {
+                await element.click();
+                logger.info(`Clicked continuation button: ${selector}`);
+                await page.waitForTimeout(2000); // Wait for potential navigation
+                return; // Only click one continuation button per page
+              }
+            }
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+    } catch (error) {
+      logger.warn(`Error clicking continuation buttons: ${error.message}`);
+    }
+  }
+
   async performIntelligentInteractions(page, url) {
     try {
       // First, handle any popups or modals that might block navigation
