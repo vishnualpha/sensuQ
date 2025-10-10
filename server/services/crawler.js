@@ -16,11 +16,14 @@ class PlaywrightCrawler {
     this.testGenerator = new AITestGenerator(config);
     this.browsers = [];
     this.isRunning = false;
+    this.isCrawling = false;
+    this.shouldStopCrawling = false;
   }
 
   async start() {
     try {
       this.isRunning = true;
+      this.isCrawling = true;
       await this.updateRunStatus('running');
       
       logger.info(`Starting crawler for test run ${this.testRunId}`);
@@ -35,6 +38,14 @@ class PlaywrightCrawler {
 
       // Start crawling
       await this.crawlWebsite();
+      
+      // Check if crawling was stopped manually
+      if (this.shouldStopCrawling) {
+        this.isCrawling = false;
+        this.emitProgress('Crawling stopped. Starting test generation...', 50);
+      } else {
+        this.isCrawling = false;
+      }
       
       // Generate and execute tests
       await this.generateAndExecuteTests();
@@ -51,6 +62,26 @@ class PlaywrightCrawler {
     }
   }
 
+  async stopCrawlingAndGenerateTests() {
+    logger.info(`Stopping crawling for test run ${this.testRunId} and proceeding to test generation`);
+    this.shouldStopCrawling = true;
+    this.isCrawling = false;
+    
+    // Update status to indicate we're moving to test generation
+    await pool.query(`
+      UPDATE test_runs 
+      SET status = 'generating_tests'
+      WHERE id = $1
+    `, [this.testRunId]);
+    
+    this.emitProgress('Stopping crawling and starting test generation...', 50);
+    
+    // Proceed directly to test generation with discovered pages
+    await this.generateAndExecuteTests();
+    
+    await this.updateRunStatus('completed');
+    this.emitProgress('Test generation completed successfully', 100);
+  }
   async launchBrowsers() {
     const browserConfigs = [
       {
@@ -141,6 +172,12 @@ class PlaywrightCrawler {
   }
 
   async crawlPage(page, url, depth) {
+    // Check if we should stop crawling
+    if (this.shouldStopCrawling) {
+      logger.info('Crawling stopped by user request');
+      return;
+    }
+    
     if (depth > this.config.max_depth || this.visitedUrls.has(url) || 
         this.discoveredPages.length >= this.config.max_pages) {
       return;
@@ -199,7 +236,7 @@ class PlaywrightCrawler {
 
       // Crawl child pages
       for (const link of links.slice(0, 10)) { // Limit links per page
-        if (this.isRunning && !this.visitedUrls.has(link)) {
+        if (this.isRunning && !this.visitedUrls.has(link) && !this.shouldStopCrawling) {
           await this.crawlPage(page, link, depth + 1);
         }
       }
@@ -444,7 +481,10 @@ class PlaywrightCrawler {
     this.io.emit('crawlerProgress', {
       testRunId: this.testRunId,
       message,
-      percentage
+      percentage,
+      isCrawling: this.isCrawling,
+      canStopCrawling: this.isCrawling && !this.shouldStopCrawling,
+      discoveredPagesCount: this.discoveredPages.length
     });
   }
 

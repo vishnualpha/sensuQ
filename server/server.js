@@ -58,14 +58,28 @@ app.use((err, req, res, next) => {
 });
 
 // Socket.io connection handling
+const activeCrawlers = new Map();
+
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
+  
+  // Handle stop crawling and generate tests request
+  socket.on('stopCrawlingAndGenerate', async (data) => {
+    const { testRunId } = data;
+    const crawler = activeCrawlers.get(testRunId);
+    
+    if (crawler) {
+      await crawler.stopCrawlingAndGenerateTests();
+    }
+  });
   
   socket.on('disconnect', () => {
     logger.info(`Client disconnected: ${socket.id}`);
   });
 });
 
+// Export activeCrawlers for use in routes
+module.exports = { app, io, activeCrawlers };
 const PORT = process.env.PORT || 3001;
 
 // Test database connection before starting server

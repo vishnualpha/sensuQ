@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { PlaywrightCrawler } = require('../services/crawler');
+const { activeCrawlers } = require('../server');
 
 const router = express.Router();
 
@@ -38,6 +39,7 @@ router.post('/start', async (req, res) => {
 
     // Start crawler
     const crawler = new PlaywrightCrawler(config, testRunId, req.io);
+    activeCrawlers.set(testRunId, crawler);
     crawler.start();
 
     res.json({ 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { testAPI, reportsAPI } from '../services/api';
+import { testAPI, reportsAPI, crawlerAPI } from '../services/api';
+import { useSocket } from '../contexts/SocketContext';
 import { 
   Clock, 
   CheckCircle, 
@@ -12,7 +13,9 @@ import {
   Activity,
   Shield,
   Zap,
-  Calendar
+  Calendar,
+  Square,
+  PlayCircle
 } from 'lucide-react';
 
 interface TestRunDetails {
@@ -37,6 +40,9 @@ export default function TestRunDetails() {
   const [testRun, setTestRun] = useState<TestRunDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [crawlerProgress, setCrawlerProgress] = useState<any>(null);
+  const [stoppingCrawler, setStoppingCrawler] = useState(false);
+  const { socket } = useSocket();
 
   useEffect(() => {
     if (id) {
@@ -44,6 +50,26 @@ export default function TestRunDetails() {
     }
   }, [id]);
 
+  useEffect(() => {
+    if (socket && id) {
+      const handleCrawlerProgress = (data: any) => {
+        if (data.testRunId === parseInt(id!)) {
+          setCrawlerProgress(data);
+          
+          // Refresh test run details when progress updates
+          if (data.percentage === 100) {
+            setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
+          }
+        }
+      };
+
+      socket.on('crawlerProgress', handleCrawlerProgress);
+
+      return () => {
+        socket.off('crawlerProgress', handleCrawlerProgress);
+      };
+    }
+  }, [socket, id]);
   const fetchTestRunDetails = async (runId: number) => {
     try {
       const response = await testAPI.getRunDetails(runId);
@@ -77,6 +103,18 @@ export default function TestRunDetails() {
     }
   };
 
+  const handleStopCrawlingAndGenerate = async () => {
+    if (!testRun) return;
+    
+    setStoppingCrawler(true);
+    try {
+      await crawlerAPI.stopCrawlingAndGenerate(testRun.id);
+    } catch (error) {
+      console.error('Error stopping crawler:', error);
+    } finally {
+      setStoppingCrawler(false);
+    }
+  };
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
@@ -132,6 +170,22 @@ export default function TestRunDetails() {
           <p className="text-sm text-gray-500">Test Run #{testRun.id}</p>
         </div>
         <div className="flex items-center space-x-3">
+          {/* Crawler Control Buttons */}
+          {crawlerProgress?.canStopCrawling && (
+            <button
+              onClick={handleStopCrawlingAndGenerate}
+              disabled={stoppingCrawler}
+              className="btn-secondary"
+            >
+              {stoppingCrawler ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+              ) : (
+                <Square className="h-4 w-4 mr-2" />
+              )}
+              {stoppingCrawler ? 'Stopping...' : 'Stop & Generate Tests'}
+            </button>
+          )}
+          
           <button
             onClick={() => downloadReport('pdf')}
             className="btn-secondary"
@@ -149,6 +203,43 @@ export default function TestRunDetails() {
         </div>
       </div>
 
+      {/* Crawler Progress */}
+      {crawlerProgress && testRun?.status === 'running' && (
+        <div className="card">
+          <div className="card-body">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <Activity className="h-5 w-5 text-blue-500 mr-2" />
+                <h3 className="text-lg font-medium text-gray-900">
+                  {crawlerProgress.isCrawling ? 'Crawling in Progress' : 'Generating Tests'}
+                </h3>
+              </div>
+              <div className="text-sm text-gray-500">
+                {crawlerProgress.discoveredPagesCount} pages discovered
+              </div>
+            </div>
+            
+            <div className="mb-2">
+              <div className="flex justify-between text-sm text-gray-600 mb-1">
+                <span>{crawlerProgress.message}</span>
+                <span>{Math.round(crawlerProgress.percentage)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${crawlerProgress.percentage}%` }}
+                ></div>
+              </div>
+            </div>
+            
+            {crawlerProgress.isCrawling && (
+              <p className="text-sm text-gray-500 mt-2">
+                💡 You can stop crawling at any time and proceed directly to test generation with the pages already discovered.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           {/* Status Card */}
