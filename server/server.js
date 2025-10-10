@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const http = require('http');
 const socketIo = require('socket.io');
+const path = require('path');
 const { testConnection } = require('./config/database');
 require('dotenv').config();
 
@@ -11,7 +12,6 @@ const authRoutes = require('./routes/auth');
 const testRoutes = require('./routes/tests');
 const configRoutes = require('./routes/config');
 const reportRoutes = require('./routes/reports');
-const screenshotRoutes = require('./routes/screenshots');
 const { authenticateToken } = require('./middleware/auth');
 const logger = require('./utils/logger');
 
@@ -31,6 +31,14 @@ app.use(morgan('combined', { stream: { write: message => logger.info(message.tri
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Serve screenshots as static files with CORS
+app.use('/api/screenshots', cors({
+  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  methods: ['GET'],
+  allowedHeaders: ['Content-Type'],
+  credentials: false
+}), express.static(path.join(__dirname, 'screenshots')));
+
 // Make io available to routes
 app.use((req, res, next) => {
   req.io = io;
@@ -42,7 +50,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tests', authenticateToken, testRoutes);
 app.use('/api/config', authenticateToken, configRoutes);
 app.use('/api/reports', authenticateToken, reportRoutes);
-app.use('/api/screenshots', screenshotRoutes); // No auth required for screenshots
 
 // Health check
 app.get('/api/health', (req, res) => {
