@@ -68,7 +68,7 @@ io.on('connection', (socket) => {
   // Handle stop crawling and generate tests request
   socket.on('stopCrawlingAndGenerate', async (data) => {
     const { testRunId } = data;
-    const crawler = activeCrawlers.get(testRunId);
+    const crawler = global.activeCrawlers.get(testRunId);
     
     if (crawler) {
       await crawler.stopCrawlingAndGenerateTests();

@@ -1,7 +1,6 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { PlaywrightCrawler } = require('../services/crawler');
-const { activeCrawlers } = require('../server');
 
 const router = express.Router();
 
@@ -39,7 +38,7 @@ router.post('/start', async (req, res) => {
 
     // Start crawler
     const crawler = new PlaywrightCrawler(config, testRunId, req.io);
-    activeCrawlers.set(testRunId, crawler);
+    global.activeCrawlers.set(testRunId, crawler);
     crawler.start();
 
     res.json({ 
@@ -79,6 +78,30 @@ router.get('/status/:testRunId', async (req, res) => {
 router.post('/stop/:testRunId', async (req, res) => {
   try {
     const { testRunId } = req.params;
+
+    const crawler = global.activeCrawlers.get(parseInt(testRunId));
+    if (crawler) {
+      await crawler.stopCrawlingAndGenerateTests();
+      res.json({ message: 'Crawling stopped and test generation started' });
+    } else {
+      res.status(404).json({ error: 'Active crawler not found' });
+    }
+  } catch (error) {
+    console.error('Error stopping crawler:', error);
+    res.status(500).json({ error: 'Failed to stop crawling' });
+  }
+});
+
+// Cancel crawling
+router.post('/cancel/:testRunId', async (req, res) => {
+  try {
+    const { testRunId } = req.params;
+
+    const crawler = global.activeCrawlers.get(parseInt(testRunId));
+    if (crawler) {
+      await crawler.cleanup();
+      global.activeCrawlers.delete(parseInt(testRunId));
+    }
 
     await pool.query(`
       UPDATE test_runs 
