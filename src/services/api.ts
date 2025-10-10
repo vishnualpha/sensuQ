@@ -73,6 +73,9 @@ export const crawlerAPI = {
   
   stopCrawling: (testRunId: number) => 
     api.post(`/crawler/stop/${testRunId}`),
+  
+  stopCrawlingAndGenerate: (testRunId: number) => 
+    api.post(`/crawler/stop-and-generate/${testRunId}`),
 };
 
 // Reports API
