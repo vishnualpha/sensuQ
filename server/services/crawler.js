@@ -25,7 +25,7 @@ class PlaywrightCrawler {
       this.emitProgress('Starting crawler...', 0);
 
       // Launch browsers for cross-browser testing
-      const browserTypes = [chromium, firefox, webkit];
+      const browserTypes = [chromium];
       for (const browserType of browserTypes) {
         try {
           const browser = await browserType.launch({ headless: true });

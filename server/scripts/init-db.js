@@ -17,7 +17,7 @@ async function initializeDatabase() {
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
     
     // Read and execute schema
-    const schemaPath = path.join(__dirname, '../database/schema.sql');
+    const schemaPath = path.join(__dirname, '../schema.sql');
     let schema = fs.readFileSync(schemaPath, 'utf8');
     
     // Replace placeholder hash with actual hash
