@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { configAPI } from '../services/api';
-import { Plus, CreditCard as Edit, Trash2, Globe, Settings, X } from 'lucide-react';
+import { configAPI, crawlerAPI } from '../services/api';
+import { Plus, CreditCard as Edit, Trash2, Globe, Settings, X, Play, Loader } from 'lucide-react';
 
 interface TestConfig {
   id: number;
   name: string;
   target_url: string;
+  llm_config_id?: number;
   max_depth: number;
   max_pages: number;
   include_accessibility: boolean;
@@ -17,9 +18,11 @@ interface TestConfig {
 export default function TestConfigurations() {
   const [configs, setConfigs] = useState<TestConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const [startingRun, setStartingRun] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingConfig, setEditingConfig] = useState<TestConfig | null>(null);
   const [llmConfigs, setLlmConfigs] = useState<any[]>([]);
+  const [message, setMessage] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     targetUrl: '',
@@ -105,6 +108,25 @@ export default function TestConfigurations() {
     }
   };
 
+  const handleStartRun = async (configId: number) => {
+    setStartingRun(configId);
+    setMessage('');
+    
+    try {
+      const response = await crawlerAPI.startCrawling(configId);
+      setMessage(`Test run started successfully! Run ID: ${response.data.testRunId}`);
+      
+      // Redirect to test runs page after a short delay
+      setTimeout(() => {
+        window.location.href = '/test-runs';
+      }, 2000);
+      
+    } catch (error: any) {
+      setMessage(error.response?.data?.error || 'Failed to start test run');
+    } finally {
+      setStartingRun(null);
+    }
+  };
   const resetForm = () => {
     setFormData({
       name: '',
@@ -154,6 +176,15 @@ export default function TestConfigurations() {
         </button>
       </div>
 
+      {message && (
+        <div className={`p-4 rounded-md ${
+          message.includes('successfully') 
+            ? 'bg-green-50 text-green-800 border border-green-200'
+            : 'bg-red-50 text-red-800 border border-red-200'
+        }`}>
+          {message}
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-6">
         {configs.map((config) => (
           <div key={config.id} className="card">
@@ -178,6 +209,18 @@ export default function TestConfigurations() {
                   )}
                 </div>
                 <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleStartRun(config.id)}
+                    disabled={startingRun === config.id}
+                    className="btn-primary"
+                  >
+                    {startingRun === config.id ? (
+                      <Loader className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4 mr-2" />
+                    )}
+                    {startingRun === config.id ? 'Starting...' : 'Start Run'}
+                  </button>
                   <button
                     onClick={() => handleEdit(config)}
                     className="p-2 text-gray-400 hover:text-gray-600"

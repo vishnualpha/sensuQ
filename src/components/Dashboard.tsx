@@ -226,15 +226,24 @@ export default function Dashboard() {
         </div>
         <div className="card-body">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button className="btn-primary">
+            <button 
+              onClick={() => window.location.href = '/configurations'}
+              className="btn-primary"
+            >
               <Play className="h-4 w-4 mr-2" />
               Start New Test Run
             </button>
-            <button className="btn-secondary">
+            <button 
+              onClick={() => window.location.href = '/configurations'}
+              className="btn-secondary"
+            >
               <FileText className="h-4 w-4 mr-2" />
               Create Configuration
             </button>
-            <button className="btn-secondary">
+            <button 
+              onClick={() => window.location.href = '/test-runs'}
+              className="btn-secondary"
+            >
               <BarChart3 className="h-4 w-4 mr-2" />
               View Reports
             </button>
