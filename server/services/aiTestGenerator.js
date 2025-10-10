@@ -75,7 +75,7 @@ Generate at least 5 test cases covering different aspects of the page.
       messages: [
         {
           role: 'system',
-          content: 'You are an expert QA engineer specializing in automated web testing. Generate comprehensive, realistic test cases.'
+          content: 'You are an expert QA engineer and web automation specialist. You understand modern web applications and can suggest intelligent interactions to discover content and navigate complex user interfaces.'
         },
         {
           role: 'user',
@@ -86,7 +86,10 @@ Generate at least 5 test cases covering different aspects of the page.
       temperature: this.config.temperature || 0.7
     };
 
-    const response = await axios.post(this.apiUrl, payload, { headers });
+    const response = await axios.post(this.apiUrl, payload, { 
+      headers,
+      timeout: 30000 // 30 second timeout
+    });
     
     return response.data.choices[0].message.content;
   }

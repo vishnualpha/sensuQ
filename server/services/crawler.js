@@ -173,7 +173,16 @@ class PlaywrightCrawler {
       const progress = Math.min((this.visitedUrls.size / this.config.max_pages) * 50, 50);
       this.emitProgress(`Crawling: ${url}`, progress);
 
-      await page.goto(url, { waitUntil: 'networkidle' });
+      // Enhanced navigation with timeout and retry logic
+      await this.navigateToPage(page, url);
+      
+      // Wait for page to stabilize
+      await page.waitForTimeout(2000);
+      
+      // Perform intelligent interactions if LLM is available
+      if (this.testGenerator && this.config.api_key) {
+        await this.performIntelligentInteractions(page, url);
+      }
       
       const title = await page.title();
       const elements = await page.$$('*');
@@ -214,15 +223,13 @@ class PlaywrightCrawler {
         WHERE id = $2
       `, [this.discoveredPages.length, this.testRunId]);
 
-      // Find links for further crawling
-      const links = await page.$$eval('a[href]', anchors => 
-        anchors.map(a => a.href).filter(href => href.startsWith('http'))
-      );
+      // Find navigation opportunities (links, buttons, forms)
+      const navigationOpportunities = await this.findNavigationOpportunities(page);
 
       // Crawl child pages
-      for (const link of links.slice(0, 10)) { // Limit links per page
-        if (this.isRunning && !this.visitedUrls.has(link) && !this.shouldStopCrawling) {
-          await this.crawlPage(page, link, depth + 1);
+      for (const opportunity of navigationOpportunities.slice(0, 8)) { // Limit opportunities per page
+        if (this.isRunning && !this.visitedUrls.has(opportunity.url) && !this.shouldStopCrawling) {
+          await this.crawlPage(page, opportunity.url, depth + 1);
         }
       }
 
@@ -231,6 +238,232 @@ class PlaywrightCrawler {
     }
   }
 
+  async navigateToPage(page, url) {
+    const maxRetries = 3;
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        await page.goto(url, { 
+          waitUntil: 'domcontentloaded', // Less strict than networkidle
+          timeout: 15000 // Reduced timeout
+        });
+        
+        // Wait for basic page elements
+        await page.waitForTimeout(1000);
+        return;
+        
+      } catch (error) {
+        attempt++;
+        logger.warn(`Navigation attempt ${attempt} failed for ${url}: ${error.message}`);
+        
+        if (attempt >= maxRetries) {
+          throw error;
+        }
+        
+        // Wait before retry
+        await page.waitForTimeout(2000);
+      }
+    }
+  }
+
+  async performIntelligentInteractions(page, url) {
+    try {
+      // Get page context for LLM
+      const pageContext = await this.getPageContext(page);
+      
+      // Ask LLM for interaction suggestions
+      const interactions = await this.getInteractionSuggestions(pageContext, url);
+      
+      // Execute suggested interactions
+      for (const interaction of interactions) {
+        try {
+          await this.executeInteraction(page, interaction);
+          await page.waitForTimeout(1000); // Wait between interactions
+        } catch (error) {
+          logger.warn(`Failed to execute interaction: ${error.message}`);
+        }
+      }
+      
+    } catch (error) {
+      logger.warn(`Intelligent interactions failed for ${url}: ${error.message}`);
+    }
+  }
+
+  async getPageContext(page) {
+    try {
+      const context = await page.evaluate(() => {
+        const forms = Array.from(document.forms).map(form => ({
+          action: form.action,
+          method: form.method,
+          inputs: Array.from(form.elements).map(el => ({
+            type: el.type,
+            name: el.name,
+            placeholder: el.placeholder,
+            required: el.required
+          }))
+        }));
+        
+        const buttons = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"]')).map(btn => ({
+          text: btn.textContent || btn.value,
+          type: btn.type,
+          className: btn.className
+        }));
+        
+        const selects = Array.from(document.querySelectorAll('select')).map(select => ({
+          name: select.name,
+          options: Array.from(select.options).map(opt => opt.text)
+        }));
+        
+        const modals = Array.from(document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="dialog"]')).length > 0;
+        
+        return {
+          title: document.title,
+          url: window.location.href,
+          forms,
+          buttons,
+          selects,
+          hasModals: modals,
+          bodyText: document.body.innerText.substring(0, 1000) // First 1000 chars
+        };
+      });
+      
+      return context;
+    } catch (error) {
+      logger.error(`Error getting page context: ${error.message}`);
+      return null;
+    }
+  }
+
+  async getInteractionSuggestions(pageContext, url) {
+    if (!pageContext || !this.testGenerator) return [];
+    
+    try {
+      const prompt = `
+Analyze this web page and suggest intelligent interactions to discover more content:
+
+URL: ${url}
+Title: ${pageContext.title}
+
+Page Elements:
+- Forms: ${JSON.stringify(pageContext.forms, null, 2)}
+- Buttons: ${JSON.stringify(pageContext.buttons, null, 2)}
+- Dropdowns: ${JSON.stringify(pageContext.selects, null, 2)}
+- Has Modals: ${pageContext.hasModals}
+
+Page Content Preview: ${pageContext.bodyText}
+
+Suggest 2-3 intelligent interactions that would help discover more content or navigate deeper into the application. Focus on:
+1. Filling forms with realistic test data
+2. Clicking navigation buttons
+3. Selecting dropdown options
+4. Dismissing modals/popups
+
+Return as JSON array:
+[
+  {
+    "type": "fill|click|select|dismiss",
+    "selector": "CSS selector",
+    "value": "value to enter (for fill/select)",
+    "description": "What this interaction does"
+  }
+]
+
+Only suggest safe, non-destructive interactions. Avoid submit buttons unless necessary.
+`;
+
+      const response = await this.testGenerator.callLLM(prompt);
+      const suggestions = JSON.parse(response);
+      
+      return Array.isArray(suggestions) ? suggestions.slice(0, 3) : [];
+      
+    } catch (error) {
+      logger.warn(`Failed to get interaction suggestions: ${error.message}`);
+      return [];
+    }
+  }
+
+  async executeInteraction(page, interaction) {
+    switch (interaction.type) {
+      case 'fill':
+        await page.fill(interaction.selector, interaction.value);
+        logger.info(`Filled ${interaction.selector} with: ${interaction.value}`);
+        break;
+        
+      case 'click':
+        await page.click(interaction.selector);
+        logger.info(`Clicked: ${interaction.selector}`);
+        break;
+        
+      case 'select':
+        await page.selectOption(interaction.selector, interaction.value);
+        logger.info(`Selected ${interaction.value} in: ${interaction.selector}`);
+        break;
+        
+      case 'dismiss':
+        // Try common modal dismiss patterns
+        const dismissSelectors = [
+          interaction.selector,
+          '[class*="close"]',
+          '[class*="dismiss"]',
+          '.modal-close',
+          '[aria-label="Close"]'
+        ];
+        
+        for (const selector of dismissSelectors) {
+          try {
+            await page.click(selector);
+            logger.info(`Dismissed modal using: ${selector}`);
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+        break;
+        
+      default:
+        logger.warn(`Unknown interaction type: ${interaction.type}`);
+    }
+  }
+
+  async findNavigationOpportunities(page) {
+    try {
+      const opportunities = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a[href]'))
+          .map(a => ({ url: a.href, text: a.textContent?.trim(), type: 'link' }))
+          .filter(link => link.url.startsWith('http') && link.text);
+        
+        // Look for navigation buttons that might change the URL
+        const navButtons = Array.from(document.querySelectorAll('button, [role="button"]'))
+          .filter(btn => {
+            const text = btn.textContent?.toLowerCase() || '';
+            return text.includes('next') || text.includes('more') || text.includes('view') || 
+                   text.includes('explore') || text.includes('continue');
+          })
+          .map(btn => ({ 
+            url: window.location.href + '#interaction', 
+            text: btn.textContent?.trim(), 
+            type: 'button',
+            selector: btn.tagName + (btn.className ? '.' + btn.className.split(' ').join('.') : '')
+          }));
+        
+        return [...links, ...navButtons];
+      });
+      
+      // Remove duplicates and limit results
+      const uniqueOpportunities = opportunities
+        .filter((opp, index, self) => 
+          index === self.findIndex(o => o.url === opp.url)
+        )
+        .slice(0, 10);
+      
+      return uniqueOpportunities;
+      
+    } catch (error) {
+      logger.error(`Error finding navigation opportunities: ${error.message}`);
+      return [];
+    }
+  }
   async generateAndExecuteTests() {
     this.emitProgress('Generating test cases...', 60);
     
