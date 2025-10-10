@@ -41,7 +41,6 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/tests', authenticateToken, testRoutes);
 app.use('/api/config', authenticateToken, configRoutes);
-app.use('/api/crawler', authenticateToken, crawlerRoutes);
 app.use('/api/reports', authenticateToken, reportRoutes);
 app.use('/api/screenshots', screenshotRoutes);
 
@@ -82,6 +81,10 @@ io.on('connection', (socket) => {
 
 // Make activeCrawlers available globally
 global.activeCrawlers = activeCrawlers;
+
+// Import crawler routes after activeCrawlers is defined
+const crawlerRoutes = require('./routes/crawler');
+app.use('/api/crawler', authenticateToken, crawlerRoutes);
 
 const PORT = process.env.PORT || 3001;
 
