@@ -92,6 +92,24 @@ router.post('/stop/:testRunId', async (req, res) => {
   }
 });
 
+// Stop crawling and generate tests
+router.post('/stop-and-generate/:testRunId', async (req, res) => {
+  try {
+    const { testRunId } = req.params;
+
+    const crawler = global.activeCrawlers.get(parseInt(testRunId));
+    if (crawler) {
+      await crawler.stopCrawlingAndGenerateTests();
+      res.json({ message: 'Crawling stopped and test generation started' });
+    } else {
+      res.status(404).json({ error: 'Active crawler not found' });
+    }
+  } catch (error) {
+    console.error('Error stopping crawler and generating tests:', error);
+    res.status(500).json({ error: 'Failed to stop crawling and generate tests' });
+  }
+});
+
 // Cancel crawling
 router.post('/cancel/:testRunId', async (req, res) => {
   try {
