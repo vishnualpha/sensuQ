@@ -348,6 +348,7 @@ export default function TestRunDetails() {
                                 // Show fallback icon
                                 const fallback = target.nextElementSibling as HTMLElement;
                                 if (fallback) fallback.style.display = 'flex';
+                                console.log('Failed to load screenshot:', target.src);
                               }}
                             />
                           ) : (
