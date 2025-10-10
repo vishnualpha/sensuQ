@@ -159,14 +159,15 @@ class PlaywrightCrawler {
 
       // Take screenshot (create directory if it doesn't exist)
       const screenshotDir = 'screenshots';
-      const fs = require('fs');
+      const fs = require('fs').promises;
       if (!fs.existsSync(screenshotDir)) {
-        fs.mkdirSync(screenshotDir, { recursive: true });
+        await fs.mkdir(screenshotDir, { recursive: true });
       }
       
       const screenshotPath = `${screenshotDir}/${this.testRunId}_${Date.now()}.png`;
       try {
         await page.screenshot({ path: screenshotPath, fullPage: true });
+        logger.info(`Screenshot saved: ${screenshotPath}`);
       } catch (screenshotError) {
         logger.warn(`Failed to take screenshot: ${screenshotError.message}`);
       }

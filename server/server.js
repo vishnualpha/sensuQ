@@ -12,6 +12,7 @@ const testRoutes = require('./routes/tests');
 const configRoutes = require('./routes/config');
 const crawlerRoutes = require('./routes/crawler');
 const reportRoutes = require('./routes/reports');
+const screenshotRoutes = require('./routes/screenshots');
 const { authenticateToken } = require('./middleware/auth');
 const logger = require('./utils/logger');
 
@@ -43,6 +44,7 @@ app.use('/api/tests', authenticateToken, testRoutes);
 app.use('/api/config', authenticateToken, configRoutes);
 app.use('/api/crawler', authenticateToken, crawlerRoutes);
 app.use('/api/reports', authenticateToken, reportRoutes);
+app.use('/api/screenshots', screenshotRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
