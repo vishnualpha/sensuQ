@@ -3,6 +3,8 @@ const { pool } = require('../config/database');
 const { decrypt } = require('../utils/encryption');
 const { AITestGenerator } = require('./aiTestGenerator');
 const logger = require('../utils/logger');
+const path = require('path');
+const fs = require('fs');
 
 class PlaywrightCrawler {
   constructor(config, testRunId, io) {
@@ -24,16 +26,8 @@ class PlaywrightCrawler {
       logger.info(`Starting crawler for test run ${this.testRunId}`);
       this.emitProgress('Starting crawler...', 0);
 
-      // Launch browsers for cross-browser testing
-      const browserTypes = [chromium];
-      for (const browserType of browserTypes) {
-        try {
-          const browser = await browserType.launch({ headless: true });
-          this.browsers.push({ type: browserType.name(), browser });
-        } catch (error) {
-          logger.warn(`Failed to launch ${browserType.name()}: ${error.message}`);
-        }
-      }
+      // Launch browsers with proper configuration
+      await this.launchBrowsers();
 
       if (this.browsers.length === 0) {
         throw new Error('No browsers could be launched');
@@ -55,6 +49,73 @@ class PlaywrightCrawler {
     } finally {
       await this.cleanup();
     }
+  }
+
+  async launchBrowsers() {
+    const browserConfigs = [
+      {
+        type: chromium,
+        name: 'chromium',
+        options: {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor'
+          ]
+        }
+      },
+      {
+        type: firefox,
+        name: 'firefox',
+        options: {
+          headless: true,
+          args: ['--no-sandbox']
+        }
+      },
+      {
+        type: webkit,
+        name: 'webkit',
+        options: {
+          headless: true
+        }
+      }
+    ];
+
+    for (const config of browserConfigs) {
+      try {
+        logger.info(`Attempting to launch ${config.name}...`);
+        const browser = await config.type.launch(config.options);
+        this.browsers.push({ type: config.name, browser });
+        logger.info(`Successfully launched ${config.name}`);
+      } catch (error) {
+        logger.error(`Failed to launch ${config.name}: ${error.message}`);
+        logger.error(`Error stack: ${error.stack}`);
+        
+        // Try with minimal options for Chromium
+        if (config.name === 'chromium') {
+          try {
+            logger.info('Retrying Chromium with minimal options...');
+            const browser = await config.type.launch({ 
+              headless: true,
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            this.browsers.push({ type: config.name, browser });
+            logger.info('Successfully launched Chromium with minimal options');
+          } catch (retryError) {
+            logger.error(`Chromium retry failed: ${retryError.message}`);
+          }
+        }
+      }
+    }
+
+    logger.info(`Successfully launched ${this.browsers.length} browser(s): ${this.browsers.map(b => b.type).join(', ')}`);
   }
 
   async crawlWebsite() {
@@ -87,7 +148,8 @@ class PlaywrightCrawler {
 
     try {
       this.visitedUrls.add(url);
-      this.emitProgress(`Crawling: ${url}`, (this.visitedUrls.size / this.config.max_pages) * 50);
+      const progress = Math.min((this.visitedUrls.size / this.config.max_pages) * 50, 50);
+      this.emitProgress(`Crawling: ${url}`, progress);
 
       await page.goto(url, { waitUntil: 'networkidle' });
       
@@ -95,9 +157,20 @@ class PlaywrightCrawler {
       const elements = await page.$$('*');
       const elementsCount = elements.length;
 
-      // Take screenshot
-      const screenshotPath = `screenshots/${this.testRunId}_${Date.now()}.png`;
-      await page.screenshot({ path: screenshotPath, fullPage: true });
+      // Take screenshot (create directory if it doesn't exist)
+      const screenshotDir = 'screenshots';
+      const fs = require('fs').promises;
+      if (!fs.existsSync(screenshotDir)) {
+        await fs.mkdir(screenshotDir, { recursive: true });
+      }
+      
+      const screenshotPath = `${screenshotDir}/${this.testRunId}_${Date.now()}.png`;
+      try {
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        logger.info(`Screenshot saved: ${screenshotPath}`);
+      } catch (screenshotError) {
+        logger.warn(`Failed to take screenshot: ${screenshotError.message}`);
+      }
 
       // Save discovered page
       const pageResult = await pool.query(`
@@ -108,6 +181,13 @@ class PlaywrightCrawler {
 
       const pageId = pageResult.rows[0].id;
       this.discoveredPages.push({ id: pageId, url, title, elementsCount, depth });
+
+      // Update page count in real-time
+      await pool.query(`
+        UPDATE test_runs 
+        SET total_pages_discovered = $1
+        WHERE id = $2
+      `, [this.discoveredPages.length, this.testRunId]);
 
       // Find links for further crawling
       const links = await page.$$eval('a[href]', anchors => 
@@ -134,6 +214,13 @@ class PlaywrightCrawler {
     let failedTests = 0;
     let flakyTests = 0;
 
+    // Update page count first
+    await pool.query(`
+      UPDATE test_runs 
+      SET total_pages_discovered = $1
+      WHERE id = $2
+    `, [this.discoveredPages.length, this.testRunId]);
+
     for (const pageData of this.discoveredPages) {
       try {
         // Generate test cases using AI
@@ -142,38 +229,54 @@ class PlaywrightCrawler {
         for (const testCase of testCases) {
           totalTests++;
           
-          // Execute test case across all browsers
-          const results = await this.executeTestCase(testCase, pageData);
-          
-          // Determine final status based on cross-browser results
-          const passCount = results.filter(r => r.status === 'passed').length;
-          const failCount = results.filter(r => r.status === 'failed').length;
-          
           let finalStatus = 'passed';
           let isFlaky = false;
-          
-          if (passCount > 0 && failCount > 0) {
-            finalStatus = 'failed';
-            isFlaky = true;
-            flakyTests++;
-          } else if (failCount === results.length) {
+          let executionTime = 0;
+          let results = [];
+
+          try {
+            // Execute test case across all browsers
+            results = await this.executeTestCase(testCase, pageData);
+            
+            // Determine final status based on cross-browser results
+            const passCount = results.filter(r => r.status === 'passed').length;
+            const failCount = results.filter(r => r.status === 'failed').length;
+            
+            if (passCount > 0 && failCount > 0) {
+              finalStatus = 'flaky';
+              isFlaky = true;
+              flakyTests++;
+            } else if (failCount === results.length) {
+              finalStatus = 'failed';
+              failedTests++;
+            } else {
+              finalStatus = 'passed';
+              passedTests++;
+            }
+
+            executionTime = results.reduce((sum, r) => sum + r.executionTime, 0) / results.length;
+          } catch (error) {
             finalStatus = 'failed';
             failedTests++;
-          } else {
-            passedTests++;
+            results = [{ browser: 'unknown', status: 'failed', executionTime: 0, errorDetails: error.message }];
           }
 
           // Save test case result
           await pool.query(`
             INSERT INTO test_cases (test_run_id, page_id, test_type, test_name, test_description, 
                                    test_steps, expected_result, actual_result, status, 
-                                   execution_time, self_healed)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                   execution_time, self_healed, error_details)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           `, [
             this.testRunId, pageData.id, testCase.type, testCase.name, testCase.description,
             JSON.stringify(testCase.steps), testCase.expectedResult, 
-            JSON.stringify(results), finalStatus, testCase.executionTime || 0, false
+            JSON.stringify(results), finalStatus, Math.round(executionTime), isFlaky,
+            results.find(r => r.errorDetails)?.errorDetails || null
           ]);
+
+          // Update progress periodically
+          const progress = 60 + (totalTests / (this.discoveredPages.length * 3)) * 30;
+          this.emitProgress(`Executed ${totalTests} test cases...`, Math.min(progress, 90));
         }
         
       } catch (error) {
@@ -183,7 +286,7 @@ class PlaywrightCrawler {
 
     // Update test run statistics
     const coverage = this.discoveredPages.length > 0 ? 
-      Math.min((totalTests / (this.discoveredPages.length * 5)) * 100, 100) : 0;
+      Math.min((totalTests / (this.discoveredPages.length * 3)) * 100, 100) : 0;
 
     await pool.query(`
       UPDATE test_runs 
@@ -192,6 +295,7 @@ class PlaywrightCrawler {
       WHERE id = $7
     `, [this.discoveredPages.length, totalTests, passedTests, failedTests, flakyTests, coverage, this.testRunId]);
 
+    logger.info(`Test execution completed: ${totalTests} total, ${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky`);
     this.emitProgress('Test execution completed', 90);
   }
 

@@ -9,7 +9,10 @@ import {
   Download,
   Globe,
   FileText,
-  Activity
+  Activity,
+  Shield,
+  Zap,
+  Calendar
 } from 'lucide-react';
 
 interface TestRunDetails {
@@ -240,12 +243,61 @@ export default function TestRunDetails() {
                 <div className="space-y-4">
                   {testRun.discoveredPages.map((page, index) => (
                     <div key={index} className="border rounded-lg p-4">
-                      <h4 className="font-medium text-gray-900">{page.title || 'Untitled Page'}</h4>
-                      <p className="text-sm text-gray-500">{page.url}</p>
-                      <div className="mt-2 flex items-center space-x-4 text-xs text-gray-500">
-                        <span>Depth: {page.crawl_depth}</span>
-                        <span>Elements: {page.elements_count}</span>
-                        <span>Discovered: {new Date(page.discovered_at).toLocaleString()}</span>
+                      <div className="flex items-start space-x-4">
+                        {/* Screenshot */}
+                        <div className="flex-shrink-0">
+                          {page.screenshot_path ? (
+                            <img
+                              src={`/api/screenshots/${page.screenshot_path.split('/').pop()}`}
+                              alt={`Screenshot of ${page.title || page.url}`}
+                              className="w-32 h-24 object-cover rounded border"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center">
+                              <Globe className="h-8 w-8 text-gray-400" />
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Page Details */}
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-900">{page.title || 'Untitled Page'}</h4>
+                          <p className="text-sm text-gray-500 break-all">{page.url}</p>
+                          
+                          {/* Page Statistics */}
+                          <div className="mt-3 grid grid-cols-2 gap-4">
+                            <div className="bg-blue-50 rounded-lg p-3">
+                              <div className="flex items-center">
+                                <div className="p-1 bg-blue-100 rounded">
+                                  <FileText className="h-4 w-4 text-blue-600" />
+                                </div>
+                                <div className="ml-2">
+                                  <p className="text-sm font-medium text-blue-900">Elements</p>
+                                  <p className="text-lg font-semibold text-blue-700">{page.elements_count || 0}</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="bg-purple-50 rounded-lg p-3">
+                              <div className="flex items-center">
+                                <div className="p-1 bg-purple-100 rounded">
+                                  <Activity className="h-4 w-4 text-purple-600" />
+                                </div>
+                                <div className="ml-2">
+                                  <p className="text-sm font-medium text-purple-900">Depth</p>
+                                  <p className="text-lg font-semibold text-purple-700">{page.crawl_depth || 0}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="mt-2 text-xs text-gray-500">
+                            <span>Discovered: {new Date(page.discovered_at).toLocaleString()}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -254,27 +306,111 @@ export default function TestRunDetails() {
 
               {activeTab === 'tests' && (
                 <div className="space-y-4">
+                  {/* Test Type Filter */}
+                  <div className="flex items-center space-x-4 mb-6">
+                    <span className="text-sm font-medium text-gray-700">Filter by type:</span>
+                    <div className="flex space-x-2">
+                      <button className="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                        All Tests
+                      </button>
+                      <button className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-800">
+                        Functional
+                      </button>
+                      <button className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-purple-100 hover:text-purple-800">
+                        Accessibility
+                      </button>
+                      <button className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-800">
+                        Performance
+                      </button>
+                    </div>
+                  </div>
+                  
                   {testRun.testCases.map((testCase, index) => (
-                    <div key={index} className={`border rounded-lg p-4 ${
+                    <div key={index} className={`border-l-4 border rounded-lg p-4 ${
                       testCase.status === 'passed' ? 'border-green-200 bg-green-50' :
                       testCase.status === 'failed' ? 'border-red-200 bg-red-50' :
                       'border-yellow-200 bg-yellow-50'
                     }`}>
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium text-gray-900">{testCase.test_name}</h4>
-                        <div className="flex items-center">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          {/* Test Type Badge */}
+                          <div className="flex items-center space-x-2 mb-2">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              testCase.test_type === 'functional' ? 'bg-green-100 text-green-800' :
+                              testCase.test_type === 'accessibility' ? 'bg-purple-100 text-purple-800' :
+                              testCase.test_type === 'performance' ? 'bg-orange-100 text-orange-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {testCase.test_type === 'functional' && <CheckCircle className="h-3 w-3 mr-1" />}
+                              {testCase.test_type === 'accessibility' && <Shield className="h-3 w-3 mr-1" />}
+                              {testCase.test_type === 'performance' && <Zap className="h-3 w-3 mr-1" />}
+                              {testCase.test_type?.charAt(0).toUpperCase() + testCase.test_type?.slice(1) || 'Unknown'}
+                            </span>
+                          </div>
+                          
+                          <h4 className="font-medium text-gray-900 mb-1">{testCase.test_name}</h4>
+                          <p className="text-sm text-gray-600 mb-3">{testCase.test_description}</p>
+                          
+                          {/* Test Steps */}
+                          {testCase.test_steps && (
+                            <div className="mb-3">
+                              <details className="group">
+                                <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
+                                  View Test Steps ({JSON.parse(testCase.test_steps || '[]').length} steps)
+                                </summary>
+                                <div className="mt-2 pl-4 border-l-2 border-gray-200">
+                                  {JSON.parse(testCase.test_steps || '[]').map((step, stepIndex) => (
+                                    <div key={stepIndex} className="mb-2 text-sm">
+                                      <span className="font-medium text-gray-600">{stepIndex + 1}.</span>
+                                      <span className="ml-2 text-gray-700">{step.description || step.action}</span>
+                                      {step.selector && (
+                                        <code className="ml-2 px-1 py-0.5 bg-gray-100 rounded text-xs">{step.selector}</code>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Status and Actions */}
+                        <div className="flex flex-col items-end space-y-2">
                           {testCase.status === 'passed' && <CheckCircle className="h-4 w-4 text-green-500" />}
                           {testCase.status === 'failed' && <XCircle className="h-4 w-4 text-red-500" />}
                           {testCase.status === 'flaky' && <AlertTriangle className="h-4 w-4 text-yellow-500" />}
-                          <span className="ml-1 text-sm font-medium capitalize">{testCase.status}</span>
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            testCase.status === 'passed' ? 'bg-green-100 text-green-800' :
+                            testCase.status === 'failed' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {testCase.status?.charAt(0).toUpperCase() + testCase.status?.slice(1)}
+                          </span>
                         </div>
                       </div>
-                      <p className="text-sm text-gray-600 mt-1">{testCase.test_description}</p>
-                      <div className="mt-2 flex items-center space-x-4 text-xs text-gray-500">
-                        <span>Type: {testCase.test_type}</span>
-                        <span>Duration: {testCase.execution_time}ms</span>
+                      
+                      {/* Test Metadata */}
+                      <div className="mt-4 flex items-center justify-between text-xs text-gray-500 bg-white bg-opacity-50 rounded p-2">
+                        <div className="flex items-center space-x-4">
+                          <span className="flex items-center">
+                            <Clock className="h-3 w-3 mr-1" />
+                            {testCase.execution_time}ms
+                          </span>
+                          <span className="flex items-center">
+                            <Calendar className="h-3 w-3 mr-1" />
+                            {new Date(testCase.executed_at).toLocaleString()}
+                          </span>
+                        </div>
                         {testCase.self_healed && <span className="text-blue-600">Self-healed</span>}
                       </div>
+                      
+                      {/* Error Details */}
+                      {testCase.error_details && (
+                        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
+                          <p className="text-sm font-medium text-red-800 mb-1">Error Details:</p>
+                          <p className="text-sm text-red-700">{testCase.error_details}</p>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
