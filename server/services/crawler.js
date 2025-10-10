@@ -3,6 +3,8 @@ const { pool } = require('../config/database');
 const { decrypt } = require('../utils/encryption');
 const { AITestGenerator } = require('./aiTestGenerator');
 const logger = require('../utils/logger');
+const path = require('path');
+const fs = require('fs');
 
 class PlaywrightCrawler {
   constructor(config, testRunId, io) {
@@ -24,16 +26,8 @@ class PlaywrightCrawler {
       logger.info(`Starting crawler for test run ${this.testRunId}`);
       this.emitProgress('Starting crawler...', 0);
 
-      // Launch browsers for cross-browser testing
-      const browserTypes = [chromium, firefox, webkit];
-      for (const browserType of browserTypes) {
-        try {
-          const browser = await browserType.launch({ headless: true });
-          this.browsers.push({ type: browserType.name(), browser });
-        } catch (error) {
-          logger.warn(`Failed to launch ${browserType.name()}: ${error.message}`);
-        }
-      }
+      // Launch browsers with proper configuration
+      await this.launchBrowsers();
 
       if (this.browsers.length === 0) {
         throw new Error('No browsers could be launched');
@@ -55,6 +49,73 @@ class PlaywrightCrawler {
     } finally {
       await this.cleanup();
     }
+  }
+
+  async launchBrowsers() {
+    const browserConfigs = [
+      {
+        type: chromium,
+        name: 'chromium',
+        options: {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor'
+          ]
+        }
+      },
+      {
+        type: firefox,
+        name: 'firefox',
+        options: {
+          headless: true,
+          args: ['--no-sandbox']
+        }
+      },
+      {
+        type: webkit,
+        name: 'webkit',
+        options: {
+          headless: true
+        }
+      }
+    ];
+
+    for (const config of browserConfigs) {
+      try {
+        logger.info(`Attempting to launch ${config.name}...`);
+        const browser = await config.type.launch(config.options);
+        this.browsers.push({ type: config.name, browser });
+        logger.info(`Successfully launched ${config.name}`);
+      } catch (error) {
+        logger.error(`Failed to launch ${config.name}: ${error.message}`);
+        logger.error(`Error stack: ${error.stack}`);
+        
+        // Try with minimal options for Chromium
+        if (config.name === 'chromium') {
+          try {
+            logger.info('Retrying Chromium with minimal options...');
+            const browser = await config.type.launch({ 
+              headless: true,
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            this.browsers.push({ type: config.name, browser });
+            logger.info('Successfully launched Chromium with minimal options');
+          } catch (retryError) {
+            logger.error(`Chromium retry failed: ${retryError.message}`);
+          }
+        }
+      }
+    }
+
+    logger.info(`Successfully launched ${this.browsers.length} browser(s): ${this.browsers.map(b => b.type).join(', ')}`);
   }
 
   async crawlWebsite() {
