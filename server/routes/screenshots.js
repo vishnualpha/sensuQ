@@ -6,13 +6,14 @@ const { authenticateToken } = require('../middleware/auth');
 const router = express.Router();
 
 // Serve screenshot files
-router.get('/:filename', authenticateToken, (req, res) => {
+router.get('/:filename', (req, res) => {
   try {
     const { filename } = req.params;
     const screenshotPath = path.join(__dirname, '../screenshots', filename);
     
     // Check if file exists
     if (!fs.existsSync(screenshotPath)) {
+      console.log(`Screenshot not found: ${screenshotPath}`);
       return res.status(404).json({ error: 'Screenshot not found' });
     }
     
@@ -24,9 +25,12 @@ router.get('/:filename', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'Invalid file type' });
     }
     
+    console.log(`Serving screenshot: ${screenshotPath}`);
+    
     // Set appropriate content type
     const contentType = fileExtension === '.png' ? 'image/png' : 'image/jpeg';
     res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
     
     // Send file
     res.sendFile(screenshotPath);

@@ -248,18 +248,27 @@ export default function TestRunDetails() {
                         <div className="flex-shrink-0">
                           {page.screenshot_path ? (
                             <img
-                              src={`/api/screenshots/${page.screenshot_path.split('/').pop()}`}
+                              src={`http://localhost:3001/api/screenshots/${page.screenshot_path.split('/').pop()}`}
                               alt={`Screenshot of ${page.title || page.url}`}
-                              className="w-32 h-24 object-cover rounded border"
+                              className="w-32 h-24 object-cover rounded border shadow-sm"
                               onError={(e) => {
-                                e.currentTarget.style.display = 'none';
+                                const target = e.currentTarget as HTMLImageElement;
+                                target.style.display = 'none';
+                                // Show fallback icon
+                                const fallback = target.nextElementSibling as HTMLElement;
+                                if (fallback) fallback.style.display = 'flex';
                               }}
                             />
                           ) : (
-                            <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center">
-                              <Globe className="h-8 w-8 text-gray-400" />
-                            </div>
+                            null
                           )}
+                          {/* Fallback icon - shown when image fails to load */}
+                          <div 
+                            className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm"
+                            style={{ display: page.screenshot_path ? 'none' : 'flex' }}
+                          >
+                              <Globe className="h-8 w-8 text-gray-400" />
+                          </div>
                         </div>
                         
                         {/* Page Details */}

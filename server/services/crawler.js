@@ -160,18 +160,19 @@ class PlaywrightCrawler {
       // Take screenshot (create directory if it doesn't exist)
       const screenshotDir = 'screenshots';
       const fsPromises = require('fs').promises;
-      const fs = require('fs');
       
       if (!fs.existsSync(screenshotDir)) {
         await fsPromises.mkdir(screenshotDir, { recursive: true });
       }
       
-      const screenshotPath = `${screenshotDir}/${this.testRunId}_${Date.now()}.png`;
+      const screenshotFilename = `${this.testRunId}_${Date.now()}.png`;
+      const screenshotPath = `${screenshotDir}/${screenshotFilename}`;
       try {
         await page.screenshot({ path: screenshotPath, fullPage: true });
         logger.info(`Screenshot saved: ${screenshotPath}`);
       } catch (screenshotError) {
         logger.warn(`Failed to take screenshot: ${screenshotError.message}`);
+        screenshotFilename = null; // Don't save path if screenshot failed
       }
 
       // Save discovered page
@@ -179,7 +180,7 @@ class PlaywrightCrawler {
         INSERT INTO discovered_pages (test_run_id, url, title, elements_count, screenshot_path, crawl_depth)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id
-      `, [this.testRunId, url, title, elementsCount, screenshotPath, depth]);
+      `, [this.testRunId, url, title, elementsCount, screenshotFilename ? screenshotPath : null, depth]);
 
       const pageId = pageResult.rows[0].id;
       this.discoveredPages.push({ id: pageId, url, title, elementsCount, depth });
