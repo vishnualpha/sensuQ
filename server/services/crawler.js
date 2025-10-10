@@ -57,7 +57,7 @@ class PlaywrightCrawler {
         type: chromium,
         name: 'chromium',
         options: {
-          headless: true,
+          headless: false,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -69,21 +69,6 @@ class PlaywrightCrawler {
             '--disable-web-security',
             '--disable-features=VizDisplayCompositor'
           ]
-        }
-      },
-      {
-        type: firefox,
-        name: 'firefox',
-        options: {
-          headless: true,
-          args: ['--no-sandbox']
-        }
-      },
-      {
-        type: webkit,
-        name: 'webkit',
-        options: {
-          headless: true
         }
       }
     ];
