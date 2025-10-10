@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@playwright/test": "^1.56.0",
-    "@supabase/supabase-js": "^2.57.4",
     "react-router-dom": "^6.20.1",
     "socket.io-client": "^4.7.4",
     "@types/bcryptjs": "^2.4.6",
