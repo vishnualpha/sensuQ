@@ -8,7 +8,9 @@ import {
   AlertTriangle,
   TrendingUp,
   Clock,
-  Globe
+  Globe,
+  Play,
+  FileText
 } from 'lucide-react';
 
 interface DashboardStats {
