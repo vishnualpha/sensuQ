@@ -356,10 +356,28 @@ export default function TestRunDetails() {
                             <div className="mb-3">
                               <details className="group">
                                 <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
-                                  View Test Steps ({JSON.parse(testCase.test_steps || '[]').length} steps)
+                                  View Test Steps ({(() => {
+                                    try {
+                                      const steps = typeof testCase.test_steps === 'string' 
+                                        ? JSON.parse(testCase.test_steps) 
+                                        : testCase.test_steps || [];
+                                      return Array.isArray(steps) ? steps.length : 0;
+                                    } catch {
+                                      return 0;
+                                    }
+                                  })()} steps)
                                 </summary>
                                 <div className="mt-2 pl-4 border-l-2 border-gray-200">
-                                  {JSON.parse(testCase.test_steps || '[]').map((step, stepIndex) => (
+                                  {(() => {
+                                    try {
+                                      const steps = typeof testCase.test_steps === 'string' 
+                                        ? JSON.parse(testCase.test_steps) 
+                                        : testCase.test_steps || [];
+                                      return Array.isArray(steps) ? steps : [];
+                                    } catch {
+                                      return [];
+                                    }
+                                  })().map((step, stepIndex) => (
                                     <div key={stepIndex} className="mb-2 text-sm">
                                       <span className="font-medium text-gray-600">{stepIndex + 1}.</span>
                                       <span className="ml-2 text-gray-700">{step.description || step.action}</span>

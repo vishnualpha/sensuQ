@@ -271,7 +271,7 @@ class PlaywrightCrawler {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           `, [
             this.testRunId, pageData.id, testCase.type, testCase.name, testCase.description,
-            JSON.stringify(testCase.steps), testCase.expectedResult, 
+            JSON.stringify(testCase.steps || []), testCase.expectedResult, 
             JSON.stringify(results), finalStatus, Math.round(executionTime), isFlaky,
             results.find(r => r.errorDetails)?.errorDetails || null
           ]);
