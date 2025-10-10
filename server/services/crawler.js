@@ -182,6 +182,9 @@ class PlaywrightCrawler {
       // Perform intelligent interactions if LLM is available
       if (this.testGenerator && this.config.api_key) {
         await this.performIntelligentInteractions(page, url);
+      } else {
+        // Even without LLM, perform basic popup dismissal and continuation
+        await this.performBasicInteractions(page, url);
       }
       
       const title = await page.title();
@@ -269,6 +272,9 @@ class PlaywrightCrawler {
 
   async performIntelligentInteractions(page, url) {
     try {
+      // First, handle any popups or modals that might block navigation
+      await this.handlePopupsAndModals(page);
+      
       // Get page context for LLM
       const pageContext = await this.getPageContext(page);
       
