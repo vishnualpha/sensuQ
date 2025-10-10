@@ -1,12 +1,9 @@
 const express = require('express');
-const { Pool } = require('pg');
+const { pool } = require('../config/database');
 const { encrypt, decrypt } = require('../utils/encryption');
 const { requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 // Get all LLM configurations
 router.get('/llm', requireAdmin, async (req, res) => {

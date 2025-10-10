@@ -1,11 +1,8 @@
 const express = require('express');
-const { Pool } = require('pg');
+const { pool } = require('../config/database');
 const { PlaywrightCrawler } = require('../services/crawler');
 
 const router = express.Router();
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 // Start crawling
 router.post('/start', async (req, res) => {

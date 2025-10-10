@@ -1,10 +1,7 @@
 const express = require('express');
-const { Pool } = require('pg');
+const { pool } = require('../config/database');
 
 const router = express.Router();
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 // Get all test runs
 router.get('/runs', async (req, res) => {

@@ -1,11 +1,8 @@
 const express = require('express');
-const { Pool } = require('pg');
+const { pool } = require('../config/database');
 const { generatePDFReport, generateJSONReport } = require('../services/reportGenerator');
 
 const router = express.Router();
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 // Generate and download PDF report
 router.get('/pdf/:testRunId', async (req, res) => {

@@ -1,12 +1,8 @@
 const { chromium, firefox, webkit } = require('playwright');
-const { Pool } = require('pg');
+const { pool } = require('../config/database');
 const { decrypt } = require('../utils/encryption');
 const { AITestGenerator } = require('./aiTestGenerator');
 const logger = require('../utils/logger');
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 class PlaywrightCrawler {
   constructor(config, testRunId, io) {

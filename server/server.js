@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const http = require('http');
 const socketIo = require('socket.io');
+const { testConnection } = require('./config/database');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
@@ -65,8 +66,28 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 
-server.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
-});
+// Test database connection before starting server
+async function startServer() {
+  try {
+    const dbConnected = await testConnection();
+    if (!dbConnected) {
+      console.error('❌ Failed to connect to database. Please check your DATABASE_URL in .env file');
+      process.exit(1);
+    }
+    
+    server.listen(PORT, () => {
+      console.log('🚀 SensuQ Autonomous Testing Engine Backend');
+      console.log(`📡 Server running on port ${PORT}`);
+      console.log(`🌐 Frontend should connect to: http://localhost:${PORT}`);
+      console.log('📊 Database: PostgreSQL connected');
+      console.log('🔌 WebSocket: Ready for real-time updates');
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 module.exports = { app, io };
