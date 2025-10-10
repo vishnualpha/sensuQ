@@ -1,7 +1,6 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -10,6 +9,11 @@ router.get('/:filename', (req, res) => {
   try {
     const { filename } = req.params;
     const screenshotPath = path.join(__dirname, '../screenshots', filename);
+    
+    // Set CORS headers for image serving
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     
     // Check if file exists
     if (!fs.existsSync(screenshotPath)) {

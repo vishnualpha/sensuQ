@@ -42,7 +42,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tests', authenticateToken, testRoutes);
 app.use('/api/config', authenticateToken, configRoutes);
 app.use('/api/reports', authenticateToken, reportRoutes);
-app.use('/api/screenshots', screenshotRoutes);
+app.use('/api/screenshots', screenshotRoutes); // No auth required for screenshots
 
 // Health check
 app.get('/api/health', (req, res) => {
