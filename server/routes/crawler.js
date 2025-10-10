@@ -97,12 +97,40 @@ router.post('/stop-and-generate/:testRunId', async (req, res) => {
   try {
     const { testRunId } = req.params;
 
+    // Check if test run exists and belongs to user
+    const runResult = await pool.query(`
+      SELECT status FROM test_runs 
+      WHERE id = $1 AND created_by = $2
+    `, [testRunId, req.user.id]);
+
+    if (runResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test run not found' });
+    }
+
+    const testRun = runResult.rows[0];
+    
+    if (testRun.status !== 'running') {
+      return res.status(400).json({ error: 'Test run is not currently running' });
+    }
+
     const crawler = global.activeCrawlers.get(parseInt(testRunId));
-    if (crawler) {
-      await crawler.stopCrawlingAndGenerateTests();
-      res.json({ message: 'Crawling stopped and test generation started' });
+    if (crawler && crawler.isRunning) {
+      try {
+        await crawler.stopCrawlingAndGenerateTests();
+        res.json({ message: 'Crawling stopped and test generation started' });
+      } catch (error) {
+        console.error('Error stopping crawler:', error);
+        res.status(500).json({ error: 'Failed to stop crawling and generate tests' });
+      }
     } else {
-      res.status(404).json({ error: 'Active crawler not found' });
+      // If crawler is not found but test run is running, mark it as completed
+      await pool.query(`
+        UPDATE test_runs 
+        SET status = 'completed', end_time = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `, [testRunId]);
+      
+      res.json({ message: 'Test run marked as completed' });
     }
   } catch (error) {
     console.error('Error stopping crawler and generating tests:', error);

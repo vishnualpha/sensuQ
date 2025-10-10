@@ -924,7 +924,7 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
       message,
       percentage,
       isCrawling: this.isCrawling,
-      canStopCrawling: this.isCrawling && !this.shouldStopCrawling,
+      canStopCrawling: this.isRunning && !this.shouldStopCrawling,
       discoveredPagesCount: this.discoveredPages.length
     });
   }
