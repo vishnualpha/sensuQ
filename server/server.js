@@ -10,7 +10,6 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const testRoutes = require('./routes/tests');
 const configRoutes = require('./routes/config');
-const crawlerRoutes = require('./routes/crawler');
 const reportRoutes = require('./routes/reports');
 const screenshotRoutes = require('./routes/screenshots');
 const { authenticateToken } = require('./middleware/auth');
@@ -60,6 +59,9 @@ app.use((err, req, res, next) => {
 // Socket.io connection handling
 const activeCrawlers = new Map();
 
+// Import crawler routes after activeCrawlers is defined
+const crawlerRoutes = require('./routes/crawler');
+
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
   
@@ -78,8 +80,9 @@ io.on('connection', (socket) => {
   });
 });
 
-// Export activeCrawlers for use in routes
-module.exports = { app, io, activeCrawlers };
+// Make activeCrawlers available globally
+global.activeCrawlers = activeCrawlers;
+
 const PORT = process.env.PORT || 3001;
 
 // Test database connection before starting server
