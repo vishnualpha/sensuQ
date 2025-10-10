@@ -120,7 +120,8 @@ Generate at least 5 test cases covering different aspects of the page.
           }
         ],
         expectedResult: 'Page loads without errors and title is present',
-        priority: 'high'
+        priority: 'high',
+        executionTime: 0
       },
       {
         type: 'accessibility',
@@ -139,7 +140,8 @@ Generate at least 5 test cases covering different aspects of the page.
           }
         ],
         expectedResult: 'Basic accessibility features are present',
-        priority: 'medium'
+        priority: 'medium',
+        executionTime: 0
       },
       {
         type: 'performance',
@@ -153,7 +155,43 @@ Generate at least 5 test cases covering different aspects of the page.
           }
         ],
         expectedResult: 'Page loads within acceptable time limits',
-        priority: 'medium'
+        priority: 'medium',
+        executionTime: 0
+      },
+      {
+        type: 'functional',
+        name: 'Navigation Links Test',
+        description: 'Verify navigation links are present and functional',
+        steps: [
+          {
+            action: 'assert',
+            selector: 'a[href]',
+            description: 'Check for navigation links'
+          }
+        ],
+        expectedResult: 'Navigation links are present and accessible',
+        priority: 'medium',
+        executionTime: 0
+      },
+      {
+        type: 'accessibility',
+        name: 'Form Labels Test',
+        description: 'Check that form inputs have proper labels',
+        steps: [
+          {
+            action: 'assert',
+            selector: 'input',
+            description: 'Check for form inputs'
+          },
+          {
+            action: 'assert',
+            selector: 'label',
+            description: 'Check for form labels'
+          }
+        ],
+        expectedResult: 'Form inputs have associated labels',
+        priority: 'high',
+        executionTime: 0
       }
     ];
   }
