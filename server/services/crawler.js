@@ -170,7 +170,7 @@ class PlaywrightCrawler {
 
     try {
       this.visitedUrls.add(url);
-      const progress = Math.min((this.visitedUrls.size / this.config.max_pages) * 50, 50);
+      const progress = Math.min((this.discoveredPages.length / this.config.max_pages) * 40, 40);
       this.emitProgress(`Crawling: ${url}`, progress);
 
       // Enhanced navigation with timeout and retry logic
@@ -178,6 +178,9 @@ class PlaywrightCrawler {
       
       // Wait for page to stabilize
       await page.waitForTimeout(2000);
+      
+      // Always handle popups first - critical for continuation
+      await this.handlePopupsAndModals(page);
       
       // Perform intelligent interactions if LLM is available
       if (this.testGenerator && this.config.api_key) {
@@ -206,7 +209,7 @@ class PlaywrightCrawler {
         logger.info(`Screenshot saved: ${screenshotPath}`);
       } catch (screenshotError) {
         logger.warn(`Failed to take screenshot: ${screenshotError.message}`);
-        screenshotPath = null; // Don't save path if screenshot failed
+        screenshotPath = null;
       }
 
       // Save discovered page
@@ -219,12 +222,16 @@ class PlaywrightCrawler {
       const pageId = pageResult.rows[0].id;
       this.discoveredPages.push({ id: pageId, url, title, elementsCount, depth });
 
-      // Update page count in real-time
+      // Update counts and coverage in real-time
+      const currentCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
       await pool.query(`
         UPDATE test_runs 
-        SET total_pages_discovered = $1
-        WHERE id = $2
-      `, [this.discoveredPages.length, this.testRunId]);
+        SET total_pages_discovered = $1, coverage_percentage = $2
+        WHERE id = $3
+      `, [this.discoveredPages.length, currentCoverage, this.testRunId]);
+
+      // Emit updated progress with counts
+      this.emitProgress(`Discovered ${this.discoveredPages.length} pages`, progress);
 
       // Find navigation opportunities (links, buttons, forms)
       const navigationOpportunities = await this.findNavigationOpportunities(page);
@@ -290,7 +297,7 @@ class PlaywrightCrawler {
 
   async handlePopupsAndModals(page) {
     try {
-      logger.info('Checking for popups and modals to dismiss...');
+      logger.info('Aggressively handling popups and modals...');
       
       // Common popup/modal close selectors
       const closeSelectors = [
@@ -308,37 +315,48 @@ class PlaywrightCrawler {
         '.popup-close',
         '.dialog-close',
         '.overlay-close',
+        '.lightbox-close',
+        '.fancybox-close',
         
         // Icon-based close buttons
         '[class*="icon-close"]',
         '[class*="icon-x"]',
         '[class*="fa-times"]',
         '[class*="fa-close"]',
+        '[class*="material-icons"]:has-text("close")',
         
         // Text-based close buttons
         'button:has-text("Close")',
         'button:has-text("×")',
         'button:has-text("✕")',
+        'button:has-text("✖")',
         'a:has-text("Close")',
         'span:has-text("×")',
+        'div:has-text("×")',
         
         // Common website-specific patterns
         '[data-testid*="close"]',
         '[data-cy*="close"]',
         '[id*="close"]',
-        '[class*="btn-close"]'
+        '[class*="btn-close"]',
+        
+        // Overlay and backdrop clicks
+        '.modal-backdrop',
+        '.overlay-backdrop',
+        '[class*="backdrop"]'
       ];
       
-      // Try to close any visible popups/modals
+      // Try to close any visible popups/modals - be more aggressive
       for (const selector of closeSelectors) {
         try {
           const elements = await page.$$(selector);
           for (const element of elements) {
             const isVisible = await element.isVisible();
-            if (isVisible) {
+            const isEnabled = await element.isEnabled();
+            if (isVisible && isEnabled) {
               await element.click();
               logger.info(`Closed popup/modal using selector: ${selector}`);
-              await page.waitForTimeout(1000); // Wait for animation
+              await page.waitForTimeout(1500); // Wait longer for animation
               break; // Only close one at a time
             }
           }
@@ -346,6 +364,15 @@ class PlaywrightCrawler {
           // Continue to next selector if this one fails
           continue;
         }
+      }
+      
+      // Try pressing Escape key as fallback
+      try {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+        logger.info('Pressed Escape key to dismiss modals');
+      } catch (error) {
+        // Ignore escape key errors
       }
       
       // Handle cookie consent banners
@@ -688,22 +715,41 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
     }
   }
   async generateAndExecuteTests() {
-    this.emitProgress('Generating test cases...', 60);
+    this.emitProgress('Generating test cases...', 50);
     
     let totalTests = 0;
     let passedTests = 0;
     let failedTests = 0;
     let flakyTests = 0;
 
-    // Update page count first
+    // Update final page count and initial coverage
+    const finalCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
     await pool.query(`
       UPDATE test_runs 
-      SET total_pages_discovered = $1
-      WHERE id = $2
-    `, [this.discoveredPages.length, this.testRunId]);
+      SET total_pages_discovered = $1, coverage_percentage = $2
+      WHERE id = $3
+    `, [this.discoveredPages.length, finalCoverage, this.testRunId]);
+
+    this.emitProgress(`Starting test generation for ${this.discoveredPages.length} pages...`, 55);
 
     for (const pageData of this.discoveredPages) {
       try {
+        // Handle popups during test generation as well
+        if (this.browsers.length > 0) {
+          const browser = this.browsers[0].browser;
+          const context = await browser.newContext();
+          const page = await context.newPage();
+          
+          try {
+            await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
+            await this.handlePopupsAndModals(page);
+            await context.close();
+          } catch (error) {
+            logger.warn(`Could not handle popups for ${pageData.url}: ${error.message}`);
+            await context.close();
+          }
+        }
+        
         // Generate test cases using AI
         const testCases = await this.testGenerator.generateTestCases(pageData);
         
@@ -755,9 +801,15 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
             results.find(r => r.errorDetails)?.errorDetails || null
           ]);
 
-          // Update progress periodically
-          const progress = 60 + (totalTests / (this.discoveredPages.length * 3)) * 30;
-          this.emitProgress(`Executed ${totalTests} test cases...`, Math.min(progress, 90));
+          // Update progress and counts in real-time
+          const testProgress = 55 + (totalTests / (this.discoveredPages.length * 3)) * 35;
+          await pool.query(`
+            UPDATE test_runs 
+            SET total_test_cases = $1, passed_tests = $2, failed_tests = $3, flaky_tests = $4
+            WHERE id = $5
+          `, [totalTests, passedTests, failedTests, flakyTests, this.testRunId]);
+          
+          this.emitProgress(`Generated ${totalTests} tests (${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky)`, Math.min(testProgress, 90));
         }
         
       } catch (error) {
@@ -765,19 +817,20 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
       }
     }
 
-    // Update test run statistics
-    const coverage = this.discoveredPages.length > 0 ? 
+    // Calculate final coverage based on pages discovered and tests generated
+    const pageCoverage = this.discoveredPages.length > 0 ? 
       Math.min((totalTests / (this.discoveredPages.length * 3)) * 100, 100) : 0;
+    const finalTestCoverage = Math.max(finalCoverage, pageCoverage);
 
     await pool.query(`
       UPDATE test_runs 
       SET total_pages_discovered = $1, total_test_cases = $2, passed_tests = $3, 
           failed_tests = $4, flaky_tests = $5, coverage_percentage = $6
       WHERE id = $7
-    `, [this.discoveredPages.length, totalTests, passedTests, failedTests, flakyTests, coverage, this.testRunId]);
+    `, [this.discoveredPages.length, totalTests, passedTests, failedTests, flakyTests, finalTestCoverage, this.testRunId]);
 
     logger.info(`Test execution completed: ${totalTests} total, ${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky`);
-    this.emitProgress('Test execution completed', 90);
+    this.emitProgress(`Test execution completed: ${totalTests} tests generated with ${Math.round(finalTestCoverage)}% coverage`, 95);
   }
 
   async executeTestCase(testCase, pageData) {
@@ -795,7 +848,10 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
         let errorDetails = null;
         
         try {
-          await page.goto(pageData.url);
+          await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
+          
+          // Handle popups before executing test steps
+          await this.handlePopupsAndModals(page);
           
           for (const step of testCase.steps) {
             await this.executeTestStep(page, step);
@@ -807,6 +863,8 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
           
           // Attempt self-healing
           try {
+            // Try handling popups again before self-healing
+            await this.handlePopupsAndModals(page);
             await this.attemptSelfHealing(page, testCase);
             status = 'passed';
             errorDetails = null;
@@ -925,8 +983,12 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
       percentage,
       isCrawling: this.isCrawling,
       canStopCrawling: this.isRunning && !this.shouldStopCrawling,
-      discoveredPagesCount: this.discoveredPages.length
+      discoveredPagesCount: this.discoveredPages.length,
+      timestamp: new Date().toISOString()
     });
+    
+    // Also log progress for debugging
+    logger.info(`Crawler Progress [${this.testRunId}]: ${message} (${Math.round(percentage)}%)`);
   }
 
   async cleanup() {
