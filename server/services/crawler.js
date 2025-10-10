@@ -144,9 +144,11 @@ class PlaywrightCrawler {
 
       // Take screenshot (create directory if it doesn't exist)
       const screenshotDir = 'screenshots';
-      const fs = require('fs').promises;
+      const fsPromises = require('fs').promises;
+      const fs = require('fs');
+      
       if (!fs.existsSync(screenshotDir)) {
-        await fs.mkdir(screenshotDir, { recursive: true });
+        await fsPromises.mkdir(screenshotDir, { recursive: true });
       }
       
       const screenshotPath = `${screenshotDir}/${this.testRunId}_${Date.now()}.png`;
