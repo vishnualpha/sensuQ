@@ -18,6 +18,57 @@ import {
   PlayCircle
 } from 'lucide-react';
 
+// Component to handle screenshot loading with base64 data URLs
+function ScreenshotImage({ filename, alt }: { filename: string; alt: string }) {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const loadScreenshot = async () => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/screenshots/${filename}`);
+        if (response.ok) {
+          const data = await response.json();
+          setImageSrc(data.dataUrl);
+        } else {
+          setError(true);
+        }
+      } catch (err) {
+        console.error('Failed to load screenshot:', err);
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadScreenshot();
+  }, [filename]);
+
+  if (loading) {
+    return (
+      <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
+      </div>
+    );
+  }
+
+  if (error || !imageSrc) {
+    return (
+      <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm">
+        <Globe className="h-8 w-8 text-gray-400" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageSrc}
+      alt={alt}
+      className="w-32 h-24 object-cover rounded border shadow-sm"
+    />
+  );
+}
 interface TestRunDetails {
   id: number;
   config_name: string;
@@ -338,18 +389,9 @@ export default function TestRunDetails() {
                         {/* Screenshot */}
                         <div className="flex-shrink-0">
                           {page.screenshot_path ? (
-                            <img
-                              src={`http://localhost:3001/api/screenshots/${page.screenshot_path.split('/').pop()}`}
+                            <ScreenshotImage 
+                              filename={page.screenshot_path.split('/').pop()}
                               alt={`Screenshot of ${page.title || page.url}`}
-                              className="w-32 h-24 object-cover rounded border shadow-sm"
-                              onError={(e) => {
-                                const target = e.currentTarget as HTMLImageElement;
-                                target.style.display = 'none';
-                                // Show fallback icon
-                                const fallback = target.nextElementSibling as HTMLElement;
-                                if (fallback) fallback.style.display = 'flex';
-                                console.log('Failed to load screenshot:', target.src);
-                              }}
                             />
                           ) : (
                             null

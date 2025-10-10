@@ -31,14 +31,6 @@ app.use(morgan('combined', { stream: { write: message => logger.info(message.tri
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Serve screenshots as static files with CORS
-app.use('/api/screenshots', cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
-  methods: ['GET'],
-  allowedHeaders: ['Content-Type'],
-  credentials: false
-}), express.static(path.join(__dirname, 'screenshots')));
-
 // Make io available to routes
 app.use((req, res, next) => {
   req.io = io;
@@ -50,6 +42,10 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tests', authenticateToken, testRoutes);
 app.use('/api/config', authenticateToken, configRoutes);
 app.use('/api/reports', authenticateToken, reportRoutes);
+
+// Screenshot routes (no auth required, returns base64 data)
+const screenshotRoutes = require('./routes/screenshots');
+app.use('/api/screenshots', screenshotRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

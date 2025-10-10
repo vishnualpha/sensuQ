@@ -4,16 +4,13 @@ const fs = require('fs');
 
 const router = express.Router();
 
-// Serve screenshot files
+// Serve screenshot files as base64 data URLs to avoid CORS issues
 router.get('/:filename', (req, res) => {
   try {
     const { filename } = req.params;
     const screenshotPath = path.join(__dirname, '../screenshots', filename);
     
-    // Set CORS headers for image serving
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    console.log(`Attempting to serve screenshot: ${screenshotPath}`);
     
     // Check if file exists
     if (!fs.existsSync(screenshotPath)) {
@@ -29,15 +26,19 @@ router.get('/:filename', (req, res) => {
       return res.status(400).json({ error: 'Invalid file type' });
     }
     
-    console.log(`Serving screenshot: ${screenshotPath}`);
+    // Read file and convert to base64
+    const fileBuffer = fs.readFileSync(screenshotPath);
+    const base64Data = fileBuffer.toString('base64');
     
-    // Set appropriate content type
-    const contentType = fileExtension === '.png' ? 'image/png' : 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+    // Determine MIME type
+    const mimeType = fileExtension === '.png' ? 'image/png' : 'image/jpeg';
     
-    // Send file
-    res.sendFile(screenshotPath);
+    // Return as JSON with base64 data URL
+    res.json({
+      dataUrl: `data:${mimeType};base64,${base64Data}`,
+      filename: filename,
+      size: fileBuffer.length
+    });
     
   } catch (error) {
     console.error('Error serving screenshot:', error);
