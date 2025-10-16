@@ -123,12 +123,17 @@ router.get('/runs/:id/executions', async (req, res) => {
       WHERE te.id = $1
     `, [id]);
 // Get detailed results for a specific test execution
+router.get('/executions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
     if (executionResult.rows.length === 0) {
       return res.status(404).json({ error: 'Test execution not found' });
     }
-router.get('/executions/:id', async (req, res) => {
+
     const execution = executionResult.rows[0];
-  try {
+
+
     // Get test case execution results
     const testCaseResults = await pool.query(`
       SELECT tce.*, tc.test_name, tc.test_description, tc.test_type, tc.expected_result
@@ -137,7 +142,7 @@ router.get('/executions/:id', async (req, res) => {
       WHERE tce.test_execution_id = $1
       ORDER BY tce.executed_at
     `, [id]);
-    const { id } = req.params;
+
     res.json({
       ...execution,
       testCaseResults: testCaseResults.rows
