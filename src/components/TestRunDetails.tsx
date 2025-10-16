@@ -618,13 +618,6 @@ export default function TestRunDetails() {
                           Flow ({testTypeCounts.flow})
                         </button>
                       )}
-                      </button>
-                      <button className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-purple-100 hover:text-purple-800">
-                        Accessibility
-                      </button>
-                      <button className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-800">
-                        Performance
-                      </button>
                     </div>
                   </div>
                   
