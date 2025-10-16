@@ -31,6 +31,7 @@ export default function TestConfigurations() {
     includeAccessibility: true,
     includePerformance: true,
     llmConfigId: '',
+    testGenerationDepth: 3,
     credentials: {
       username: '',
       password: ''
@@ -89,6 +90,7 @@ export default function TestConfigurations() {
       includeAccessibility: config.include_accessibility,
       includePerformance: config.include_performance,
       llmConfigId: config.llm_config_id?.toString() || '',
+      testGenerationDepth: config.test_generation_depth || 3,
       credentials: {
         username: '',
         password: ''
@@ -136,6 +138,7 @@ export default function TestConfigurations() {
       includeAccessibility: true,
       includePerformance: true,
       llmConfigId: '',
+      testGenerationDepth: 3,
       credentials: {
         username: '',
         password: ''
@@ -326,6 +329,20 @@ export default function TestConfigurations() {
                     value={formData.maxPages}
                     onChange={(e) => setFormData({ ...formData, maxPages: parseInt(e.target.value) })}
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Test Generation Depth</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    className="form-input mt-1"
+                    value={formData.testGenerationDepth}
+                    onChange={(e) => setFormData({ ...formData, testGenerationDepth: parseInt(e.target.value) })}
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    Number of pages to consider when generating flow-based test cases
+                  </p>
                 </div>
               </div>
 
