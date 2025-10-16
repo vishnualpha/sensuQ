@@ -80,8 +80,8 @@ export const crawlerAPI = {
     api.post(`/crawler/stop-and-generate/${testRunId}`),
   
   executeTests: (testRunId: number, selectedTestCaseIds: number[]) => 
-    api.post(`/crawler/execute/${testRunId}`, { selectedTestCaseIds }),
-  executeTests: (testRunId: number, selectedTestCaseIds: number[], executionName?: string) => 
+
+  executeTestsWithName: (testRunId: number, selectedTestCaseIds: number[], executionName?: string) => 
     api.post(`/crawler/execute/${testRunId}`, { selectedTestCaseIds, executionName }),
 };
 
