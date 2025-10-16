@@ -39,16 +39,21 @@ class AITestGenerator {
   }
 
   buildTestGenerationPrompt(pageData) {
+    const businessContext = this.config.business_context ? 
+      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}\n\nUse this context to understand the application's purpose and generate more relevant test cases.` : '';
+    
     return `
 Generate comprehensive test cases for a web page with the following details:
 - URL: ${pageData.url}
 - Title: ${pageData.title}
-- Elements Count: ${pageData.elementsCount}
+- Elements Count: ${pageData.elementsCount}${businessContext}
 
 Please generate test cases that cover:
 1. Functional testing (form submissions, navigation, interactions)
 2. Accessibility testing (ARIA labels, keyboard navigation, color contrast)
 3. Performance testing (page load times, resource loading)
+
+Consider the business context provided above when generating test cases. Focus on testing scenarios that are relevant to the application's purpose and user workflows.
 
 Return the test cases in the following JSON format:
 {
@@ -83,11 +88,13 @@ Generate at least 5 test cases covering different aspects of the page.
       depth: page.crawl_depth
     }));
 
+    const businessContext = this.config.business_context ? 
+      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}\n\nUse this context to understand the application's purpose and generate more relevant flow-based test cases that align with real user journeys.` : '';
     return `
 Generate comprehensive test cases for a user flow across multiple related web pages:
 
 Pages in this flow:
-${JSON.stringify(pageDetails, null, 2)}
+${JSON.stringify(pageDetails, null, 2)}${businessContext}
 
 Please generate test cases that cover:
 1. **Flow-based testing**: Tests that span multiple pages in logical user journeys
@@ -95,7 +102,7 @@ Please generate test cases that cover:
 3. **Accessibility testing**: ARIA labels, keyboard navigation, color contrast
 4. **Performance testing**: Page load times, resource loading
 
-Focus on creating realistic user flows that connect these pages together.
+Focus on creating realistic user flows that connect these pages together. Consider the business context to generate test cases that reflect actual user behavior and business-critical workflows.
 
 Return the test cases in the following JSON format:
 {

@@ -666,6 +666,9 @@ class PlaywrightCrawler {
     if (!pageContext || !this.testGenerator) return [];
     
     try {
+      const businessContext = this.config.business_context ? 
+        `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}\n\nUse this context to suggest interactions that are relevant to the application's purpose and user workflows.` : '';
+      
       const prompt = `
 Analyze this web page and suggest intelligent interactions to discover more content:
 
@@ -676,15 +679,17 @@ Page Elements:
 - Forms: ${JSON.stringify(pageContext.forms, null, 2)}
 - Buttons: ${JSON.stringify(pageContext.buttons, null, 2)}
 - Dropdowns: ${JSON.stringify(pageContext.selects, null, 2)}
-- Has Modals: ${pageContext.hasModals}
+- Has Modals: ${pageContext.hasModals}${businessContext}
 
 Page Content Preview: ${pageContext.bodyText}
 
-Suggest 2-3 intelligent interactions that would help discover more content or navigate deeper into the application. Focus on:
+Suggest 2-3 intelligent interactions that would help discover more content or navigate deeper into the application. Consider the business context and focus on:
 1. Filling forms with realistic test data
 2. Clicking navigation buttons
 3. Selecting dropdown options
 4. Dismissing modals/popups
+
+Generate interactions that align with typical user behavior for this type of application.
 
 Return as JSON array:
 [

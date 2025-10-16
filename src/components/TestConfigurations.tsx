@@ -26,6 +26,7 @@ export default function TestConfigurations() {
   const [formData, setFormData] = useState({
     name: '',
     targetUrl: '',
+    businessContext: '',
     maxDepth: 3,
     maxPages: 50,
     includeAccessibility: true,
@@ -85,6 +86,7 @@ export default function TestConfigurations() {
     setFormData({
       name: config.name,
       targetUrl: config.target_url,
+      businessContext: config.business_context || '',
       maxDepth: config.max_depth,
       maxPages: config.max_pages,
       includeAccessibility: config.include_accessibility,
@@ -133,6 +135,7 @@ export default function TestConfigurations() {
     setFormData({
       name: '',
       targetUrl: '',
+      businessContext: '',
       maxDepth: 3,
       maxPages: 50,
       includeAccessibility: true,
@@ -208,6 +211,12 @@ export default function TestConfigurations() {
                   {config.llm_name && (
                     <div className="mt-2 text-sm text-gray-500">
                       LLM: {config.llm_name}
+                    </div>
+                  )}
+                  {config.business_context && (
+                    <div className="mt-2 text-sm text-gray-500">
+                      <span className="font-medium">Context:</span> {config.business_context.substring(0, 100)}
+                      {config.business_context.length > 100 && '...'}
                     </div>
                   )}
                 </div>
@@ -307,6 +316,19 @@ export default function TestConfigurations() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Business/App Context</label>
+                <textarea
+                  rows={4}
+                  className="form-input mt-1"
+                  value={formData.businessContext}
+                  onChange={(e) => setFormData({ ...formData, businessContext: e.target.value })}
+                  placeholder="Describe your application's purpose, key features, user workflows, and business logic. This context helps the AI generate more relevant and comprehensive test cases. For example: 'E-commerce platform for selling electronics with user registration, product catalog, shopping cart, payment processing, and order management.'"
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  Provide context about your application to help AI generate better test cases. Include business purpose, key features, user workflows, and important functionality.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Max Crawl Depth</label>

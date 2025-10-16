@@ -116,7 +116,7 @@ router.get('/test', async (req, res) => {
 // Create test configuration
 router.post('/test', async (req, res) => {
   try {
-    const { name, targetUrl, credentials, maxDepth, maxPages, includeAccessibility, includePerformance, llmConfigId, testGenerationDepth } = req.body;
+    const { name, targetUrl, businessContext, credentials, maxDepth, maxPages, includeAccessibility, includePerformance, llmConfigId, testGenerationDepth } = req.body;
 
     if (!name || !targetUrl) {
       return res.status(400).json({ error: 'Name and target URL are required' });
@@ -125,11 +125,11 @@ router.post('/test', async (req, res) => {
     const encryptedCredentials = credentials ? encrypt(JSON.stringify(credentials)) : null;
 
     const result = await pool.query(`
-      INSERT INTO test_configs (name, target_url, credentials, max_depth, max_pages, 
+      INSERT INTO test_configs (name, target_url, business_context, credentials, max_depth, max_pages, 
                                include_accessibility, include_performance, llm_config_id, created_by, test_generation_depth)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
-    `, [name, targetUrl, encryptedCredentials, maxDepth || 3, maxPages || 50, 
+    `, [name, targetUrl, businessContext, encryptedCredentials, maxDepth || 3, maxPages || 50, 
         includeAccessibility !== false, includePerformance !== false, llmConfigId, req.user.id, testGenerationDepth || 3]);
 
     res.status(201).json(result.rows[0]);
