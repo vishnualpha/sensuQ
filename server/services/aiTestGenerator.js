@@ -43,57 +43,72 @@ class AITestGenerator {
       `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}` : '';
     
     return `
-You are an expert QA engineer specializing in functional testing. Generate comprehensive, realistic test cases for this web page:
+You are an expert QA engineer specializing in FUNCTIONAL TESTING and USER JOURNEY VALIDATION. Your primary goal is to create REALISTIC, BUSINESS-FOCUSED test cases that real users would perform.
 
+CURRENT PAGE ANALYSIS:
 - URL: ${pageData.url}
 - Title: ${pageData.title}
-- Elements Count: ${pageData.elementsCount}
-- Page Elements: ${JSON.stringify(pageData.elements || {}, null, 2)}${businessContext}
+- Interactive Elements: ${pageData.elementsCount}
+- Available Forms: ${JSON.stringify(pageData.elements?.forms || [], null, 2)}
+- Available Buttons: ${JSON.stringify(pageData.elements?.buttons || [], null, 2)}
+- Available Inputs: ${JSON.stringify(pageData.elements?.inputs || [], null, 2)}
+- Available Selects: ${JSON.stringify(pageData.elements?.selects || [], null, 2)}${businessContext}
 
-CRITICAL INSTRUCTIONS:
-1. Use the business context above to understand the application's purpose and generate REALISTIC test scenarios
-2. Focus heavily on FUNCTIONAL testing that matches real user behavior for this type of application
-3. Generate test cases that exercise the core business functionality described in the context
-4. Create detailed, actionable test steps with realistic test data
-5. Consider edge cases and error scenarios relevant to the business domain
+CRITICAL REQUIREMENTS:
+1. Generate ONLY FUNCTIONAL test cases that simulate real user interactions
+2. Use the business context to create REALISTIC scenarios that actual users would perform
+3. Focus on BUSINESS-CRITICAL workflows and user goals
+4. Create detailed test steps with SPECIFIC selectors and realistic test data
+5. Include CLEAR expected results and validation criteria
+6. Generate scenarios that drive business value and test core functionality
 
-FUNCTIONAL TEST PRIORITIES (70% of tests should be functional):
-- Form submissions with realistic business data
-- Navigation through business workflows
-- User interactions that drive business value
-- Data entry and validation scenarios
-- Search and filtering functionality
-- User account operations
-- Transaction and process flows
+FUNCTIONAL TEST FOCUS (100% of tests should be functional):
+- Form submissions with domain-specific realistic data
+- Search and filter operations with business-relevant queries
+- User registration and login workflows
+- Product/service selection and interaction flows
+- Data entry and validation with real-world scenarios
+- Navigation through multi-step business processes
+- Transaction and conversion workflows
 
-ADDITIONAL TEST TYPES (30% of tests):
-- Accessibility testing (ARIA labels, keyboard navigation)
-- Performance testing (page load times, critical path performance)
+REALISTIC TEST DATA EXAMPLES BASED ON BUSINESS CONTEXT:
+${this.generateRealisticTestDataExamples()}
 
-Return the test cases in the following JSON format:
+EXPECTED VS ACTUAL RESULTS:
+- Expected Result: What should happen when the test steps are executed successfully
+- Actual Result: Will be populated during test execution with real browser results
+
+Return ONLY functional test cases in this exact JSON format:
 {
   "testCases": [
     {
-      "type": "functional|accessibility|performance",
-      "name": "Test case name",
-      "description": "Detailed description explaining business value and user scenario",
+      "type": "functional",
+      "name": "Business-focused test case name that describes the user goal",
+      "description": "Detailed description of the business scenario and user intent",
       "steps": [
         {
-          "action": "click|fill|select|wait|assert",
-          "selector": "CSS selector",
-          "value": "realistic test data based on business context",
-          "description": "Step description with expected outcome"
+          "action": "navigate|click|fill|select|wait|assert|verify",
+          "selector": "specific CSS selector for the element",
+          "value": "realistic business-relevant test data",
+          "description": "Clear description of what this step does and why"
         }
       ],
-      "expectedResult": "Detailed expected outcome with business impact",
+      "expectedResult": "Specific, measurable expected outcome that can be validated",
       "priority": "high|medium|low",
-      "businessValue": "Why this test is important for the business"
+      "businessValue": "Clear explanation of why this test matters for business success",
+      "validationCriteria": [
+        "Specific criteria to validate success",
+        "Measurable outcomes to check",
+        "Error conditions to verify"
+      ]
     }
   ]
 }
 
-Generate 8-12 test cases with at least 70% being functional tests that reflect real user scenarios for this business domain.
-Use realistic test data that makes sense for the business context (e.g., real product names, realistic prices, valid email formats, etc.).
+Generate 6-10 FUNCTIONAL test cases that represent real user goals and business workflows.
+Each test case must have clear expected results and validation criteria.
+Use realistic test data that matches the business domain and user personas.
+Focus on scenarios that drive business value and test critical functionality.
 `;
   }
 
@@ -103,75 +118,81 @@ Use realistic test data that makes sense for the business context (e.g., real pr
       title: page.title,
       elementsCount: page.elements_count,
       depth: page.crawl_depth,
-      elements: page.elements || {}
+      elements: page.elements || {},
+      forms: page.elements?.forms || [],
+      buttons: page.elements?.buttons || [],
+      inputs: page.elements?.inputs || []
     }));
 
     const businessContext = this.config.business_context ? 
       `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}` : '';
     
     return `
-You are an expert QA engineer specializing in end-to-end user journey testing. Generate comprehensive, business-focused test cases for user flows across these related pages:
+You are an expert QA engineer specializing in END-TO-END USER JOURNEY TESTING. Your mission is to create COMPLETE, REALISTIC user workflows that span multiple pages and represent actual business processes.
 
-Pages in this flow:
+DISCOVERED PAGES FOR FLOW TESTING:
 ${JSON.stringify(pageDetails, null, 2)}${businessContext}
 
-CRITICAL INSTRUCTIONS FOR FLOW-BASED TESTING:
-1. Use the business context to create REALISTIC user journeys that customers would actually follow
-2. Design complete end-to-end workflows that span multiple pages
-3. Include realistic test data that matches the business domain
-4. Focus on business-critical user paths and conversion flows
-5. Test both happy path and error scenarios
-6. Consider different user personas and their typical workflows
+CRITICAL REQUIREMENTS FOR USER JOURNEY TESTS:
+1. Create COMPLETE end-to-end workflows that span multiple pages
+2. Use business context to design REALISTIC user journeys that customers actually follow
+3. Include specific navigation paths and data flow between pages
+4. Test BUSINESS-CRITICAL conversion paths and user goals
+5. Include both successful workflows and error/edge case scenarios
+6. Use realistic test data that matches the business domain
+7. Provide clear expected results for each step and the overall journey
 
-FLOW TEST PRIORITIES:
-- Complete business processes (e.g., purchase flow, booking process, application submission)
-- User onboarding and account management flows
-- Search → Browse → Action workflows
-- Multi-step forms and wizards
-- Cross-page data persistence
-- Authentication and authorization flows
-- Error handling and recovery paths
+USER JOURNEY PRIORITIES:
+- Complete purchase/booking/application workflows
+- User registration → verification → first use flows
+- Search → filter → select → action workflows
+- Multi-step form completion across pages
+- Login → dashboard → perform task → logout flows
+- Error handling and recovery scenarios
+- Cross-page data validation and persistence
 
-EXAMPLE REALISTIC FLOWS BASED ON BUSINESS CONTEXT:
-- E-commerce: Product search → Product details → Add to cart → Checkout → Payment → Confirmation
-- Travel: Search flights → Select flight → Passenger details → Payment → Booking confirmation
-- CRM: Login → Dashboard → Add customer → Fill details → Save → View customer list
-- Banking: Login → Account overview → Transfer money → Confirm transfer → Transaction history
+REALISTIC USER JOURNEY EXAMPLES:
+${this.generateUserJourneyExamples()}
 
-REALISTIC TEST DATA EXAMPLES:
-- Use actual product names, realistic prices, valid email formats
-- Include edge cases like special characters, long names, international formats
-- Test with different user types (new vs returning, different roles)
+EXPECTED VS ACTUAL RESULTS FOR JOURNEYS:
+- Expected Result: Complete description of successful journey outcome
+- Actual Result: Will be populated with real execution results across all pages
 
-Return the test cases in the following JSON format:
+Return user journey test cases in this exact JSON format:
 {
   "testCases": [
     {
-      "type": "functional|accessibility|performance|flow",
-      "name": "Business-focused test case name",
-      "description": "Detailed description of the complete user journey and business scenario",
+      "type": "flow",
+      "name": "Complete user journey name (e.g., 'Complete flight booking from search to confirmation')",
+      "description": "Detailed description of the end-to-end user journey and business value",
       "steps": [
         {
           "action": "navigate|click|fill|select|wait|assert|verify",
-          "selector": "CSS selector",
-          "value": "realistic business data",
-          "description": "Step description with business context",
-          "expectedOutcome": "What should happen after this step",
-          "pageUrl": "which page this step occurs on"
+          "selector": "specific CSS selector",
+          "value": "realistic test data for this business domain",
+          "description": "Clear description of this step in the user journey",
+          "expectedOutcome": "Specific expected result for this step",
+          "pageUrl": "URL where this step should be performed"
         }
       ],
-      "expectedResult": "Complete business outcome and user experience result",
+      "expectedResult": "Complete description of successful journey outcome with specific success criteria",
       "priority": "high|medium|low",
       "flowType": "single-page|multi-page",
-      "businessValue": "Why this flow is critical for business success",
-      "userPersona": "Type of user who would follow this flow"
+      "businessValue": "Clear explanation of why this user journey is critical for business",
+      "userPersona": "Type of user who would follow this journey",
+      "validationCriteria": [
+        "Specific end-to-end success criteria",
+        "Data persistence validation points",
+        "User experience validation points"
+      ]
     }
   ]
 }
 
-Generate 6-10 comprehensive flow test cases with at least 80% being multi-page flows.
-Focus on complete business processes that span multiple pages and deliver real business value.
-Include realistic test data and consider different user scenarios and edge cases.
+Generate 4-8 comprehensive USER JOURNEY test cases that represent complete business workflows.
+Focus on multi-page flows that deliver real business value and test critical user paths.
+Each journey must have clear expected results and validation criteria.
+Use realistic test data and consider different user personas and scenarios.
 `;
   }
 
@@ -316,12 +337,40 @@ Include realistic test data and consider different user scenarios and edge cases
   generateFallbackFlowTestCases(pageGroup) {
     const testCases = [];
     
-    // Generate basic test cases for each page
-    pageGroup.forEach((page, index) => {
+    // Generate a flow test if multiple pages
+    if (pageGroup.length > 1) {
+      testCases.push({
+        type: 'flow',
+        name: 'Complete User Journey Across Multiple Pages',
+        description: 'Test complete user workflow spanning multiple discovered pages',
+        steps: pageGroup.map((page, index) => ({
+          action: 'navigate',
+          selector: '',
+          value: page.url,
+          description: `Step ${index + 1}: Navigate to ${page.title || page.url} and verify content loads`,
+          expectedOutcome: `Page loads successfully and displays expected content`,
+          pageUrl: page.url
+        })),
+        expectedResult: 'User can successfully complete the entire workflow across all pages, with proper data flow and navigation',
+        actualResult: null,
+        priority: 'medium',
+        flowType: 'multi-page',
+        businessValue: 'Validates that users can complete multi-step processes across the application',
+        userPersona: 'General user completing a multi-step task',
+        validationCriteria: [
+          'All pages in the flow load successfully',
+          'Navigation between pages works correctly',
+          'User can complete the intended workflow',
+          'Data persists appropriately across pages'
+        ]
+      });
+    } else {
+      // Single page flow test
+      const page = pageGroup[0];
       testCases.push({
         type: 'functional',
-        name: `Page Load Test - ${page.title || `Page ${index + 1}`}`,
-        description: `Verify that ${page.url} loads successfully and contains expected elements`,
+        name: `Complete Page Interaction Flow - ${page.title || 'Page'}`,
+        description: `Test complete user interaction flow on ${page.url}`,
         steps: [
           {
             action: 'navigate',
@@ -333,38 +382,27 @@ Include realistic test data and consider different user scenarios and edge cases
           {
             action: 'wait',
             selector: 'body',
-            description: 'Wait for page body to load',
-            expectedOutcome: 'Page content is visible'
+            value: '',
+            description: 'Wait for page content to load',
+            expectedOutcome: 'Page content is fully visible'
           },
           {
-            action: 'assert',
-            selector: 'title',
-            description: 'Verify page title exists',
-            expectedOutcome: 'Page title is present and not empty'
+            action: 'verify',
+            selector: 'h1, h2, .title, .heading',
+            value: '',
+            description: 'Verify main content is present',
+            expectedOutcome: 'Main heading or title is visible'
           }
         ],
-        expectedResult: `Page ${page.url} loads successfully with title "${page.title}" and all basic elements are present`,
+        expectedResult: `User can successfully access and interact with all key elements on ${page.url}`,
+        actualResult: null,
         priority: 'high',
-        flowType: 'single-page'
-      });
-    });
-    
-    // Generate a flow test if multiple pages
-    if (pageGroup.length > 1) {
-      testCases.push({
-        type: 'flow',
-        name: 'Multi-Page Navigation Flow',
-        description: 'Test navigation flow between related pages',
-        steps: pageGroup.map((page, index) => ({
-          action: 'navigate',
-          selector: '',
-          value: page.url,
-          description: `Navigate to ${page.title || `page ${index + 1}`}`,
-          expectedOutcome: `Successfully loads ${page.title || page.url}`
-        })),
-        expectedResult: 'User can successfully navigate through all related pages in the flow',
-        priority: 'medium',
-        flowType: 'multi-page'
+        businessValue: 'Ensures users can effectively use the page functionality',
+        validationCriteria: [
+          'Page loads within acceptable time',
+          'Main content is visible and accessible',
+          'Key interactive elements are functional'
+        ]
       });
     }
     
