@@ -16,18 +16,18 @@ class PlaywrightCrawler {
     this.testGenerator = new AITestGenerator(config);
     this.browsers = [];
     this.isRunning = false;
-    this.isCrawling = false;
+    this.phase = 'idle'; // 'crawling', 'generating', 'executing', 'completed'
     this.shouldStopCrawling = false;
   }
 
   async start() {
     try {
       this.isRunning = true;
-      this.isCrawling = true;
+      this.phase = 'crawling';
       await this.updateRunStatus('running');
       
       logger.info(`Starting crawler for test run ${this.testRunId}`);
-      this.emitProgress('Starting crawler...', 0);
+      this.emitProgress('Starting crawler...', 0, 'crawling');
 
       // Launch browsers with proper configuration
       await this.launchBrowsers();
@@ -41,22 +41,28 @@ class PlaywrightCrawler {
       
       // Check if crawling was stopped manually
       if (this.shouldStopCrawling) {
-        this.isCrawling = false;
-        this.emitProgress('Crawling stopped. Starting test generation...', 50);
+        this.phase = 'generating';
+        this.emitProgress('Crawling stopped by user. Starting test generation...', 50, 'generating');
       } else {
-        this.isCrawling = false;
+        this.phase = 'generating';
+        this.emitProgress('Crawling completed. Starting test generation...', 50, 'generating');
       }
       
-      // Generate and execute tests
-      await this.generateAndExecuteTests();
+      // Generate tests first
+      await this.generateTests();
+      
+      // Then execute tests
+      this.phase = 'executing';
+      this.emitProgress('Test generation completed. Starting test execution...', 70, 'executing');
+      await this.executeTests();
       
       await this.updateRunStatus('completed');
-      this.emitProgress('Crawling completed successfully', 100);
+      this.emitProgress('All tests completed successfully', 100, 'completed');
       
     } catch (error) {
       logger.error(`Crawler error: ${error.message}`);
       await this.updateRunStatus('failed', error.message);
-      this.emitProgress(`Crawling failed: ${error.message}`, 0);
+      this.emitProgress(`Process failed: ${error.message}`, 0, 'failed');
     } finally {
       await this.cleanup();
     }
@@ -65,22 +71,11 @@ class PlaywrightCrawler {
   async stopCrawlingAndGenerateTests() {
     logger.info(`Stopping crawling for test run ${this.testRunId} and proceeding to test generation`);
     this.shouldStopCrawling = true;
-    this.isCrawling = false;
+    this.phase = 'generating';
     
-    // Update status to indicate we're moving to test generation
-    await pool.query(`
-      UPDATE test_runs 
-      SET status = 'generating_tests'
-      WHERE id = $1
-    `, [this.testRunId]);
+    this.emitProgress('Crawling stopped by user. Moving to test generation...', 50, 'generating');
     
-    this.emitProgress('Stopping crawling and starting test generation...', 50);
-    
-    // Proceed directly to test generation with discovered pages
-    await this.generateAndExecuteTests();
-    
-    await this.updateRunStatus('completed');
-    this.emitProgress('Test generation completed successfully', 100);
+    // The main loop will handle the transition
   }
   async launchBrowsers() {
     const browserConfigs = [
@@ -231,7 +226,7 @@ class PlaywrightCrawler {
       `, [this.discoveredPages.length, currentCoverage, this.testRunId]);
 
       // Emit updated progress with counts
-      this.emitProgress(`Discovered ${this.discoveredPages.length} pages`, progress);
+      this.emitProgress(`Discovered ${this.discoveredPages.length} pages`, progress, 'crawling');
 
       // Find navigation opportunities (links, buttons, forms)
       const navigationOpportunities = await this.findNavigationOpportunities(page);
