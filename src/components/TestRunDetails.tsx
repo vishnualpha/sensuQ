@@ -116,17 +116,28 @@ export default function TestRunDetails() {
         if (data.testRunId === parseInt(id!)) {
           setCrawlerProgress(data);
           
-          // Refresh test run details when progress updates
-          if (data.percentage === 100) {
+          // Refresh test run details when crawling/generation completes
+          if (data.phase === 'ready' || data.percentage === 100) {
             setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
           }
         }
       };
 
+      const handleTestExecutionProgress = (data: any) => {
+        if (data.testRunId === parseInt(id!)) {
+          // Update test execution progress
+          if (data.phase === 'completed') {
+            setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
+            setRunningTests(false);
+          }
+        }
+      };
       socket.on('crawlerProgress', handleCrawlerProgress);
+      socket.on('testExecutionProgress', handleTestExecutionProgress);
 
       return () => {
         socket.off('crawlerProgress', handleCrawlerProgress);
+        socket.off('testExecutionProgress', handleTestExecutionProgress);
       };
     }
   }, [socket, id]);
@@ -188,7 +199,7 @@ export default function TestRunDetails() {
       setRunningTests(false);
     }
   };
-  
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
