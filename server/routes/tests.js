@@ -126,6 +126,7 @@ router.get('/runs/:id/executions', async (req, res) => {
       JOIN test_runs tr ON te.test_run_id = tr.id
       JOIN test_configs tc ON tr.test_config_id = tc.id
       WHERE te.id = $1
+    )
     `, [id]);
 
     if (executionResult.rows.length === 0) {
