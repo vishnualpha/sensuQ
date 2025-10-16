@@ -162,4 +162,49 @@ router.post('/cancel/:testRunId', async (req, res) => {
   }
 });
 
+// Execute selected test cases
+router.post('/execute/:testRunId', async (req, res) => {
+  try {
+    const { testRunId } = req.params;
+    const { selectedTestCaseIds } = req.body;
+
+    // Validate test run exists and belongs to user
+    const runResult = await pool.query(`
+      SELECT status FROM test_runs 
+      WHERE id = $1 AND created_by = $2
+    `, [testRunId, req.user.id]);
+
+    if (runResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test run not found' });
+    }
+
+    const testRun = runResult.rows[0];
+    
+    if (testRun.status !== 'ready_for_execution') {
+      return res.status(400).json({ error: 'Test run is not ready for execution' });
+    }
+
+    // Update status to executing
+    await pool.query(`
+      UPDATE test_runs 
+      SET status = 'executing'
+      WHERE id = $1
+    `, [testRunId]);
+
+    // Start test execution in background
+    const { TestExecutor } = require('../services/testExecutor');
+    const executor = new TestExecutor(testRunId, selectedTestCaseIds, req.io);
+    executor.start();
+
+    res.json({ 
+      message: 'Test execution started',
+      testRunId: testRunId,
+      selectedTests: selectedTestCaseIds.length
+    });
+  } catch (error) {
+    console.error('Error starting test execution:', error);
+    res.status(500).json({ error: 'Failed to start test execution' });
+  }
+});
+
 module.exports = router;

@@ -100,6 +100,8 @@ export default function TestRunDetails() {
   const [activeTab, setActiveTab] = useState('overview');
   const [crawlerProgress, setCrawlerProgress] = useState<any>(null);
   const [stoppingCrawler, setStoppingCrawler] = useState(false);
+  const [selectedTestCases, setSelectedTestCases] = useState<number[]>([]);
+  const [runningTests, setRunningTests] = useState(false);
   const { socket } = useSocket();
 
   useEffect(() => {
@@ -114,17 +116,28 @@ export default function TestRunDetails() {
         if (data.testRunId === parseInt(id!)) {
           setCrawlerProgress(data);
           
-          // Refresh test run details when progress updates
-          if (data.percentage === 100) {
+          // Refresh test run details when crawling/generation completes
+          if (data.phase === 'ready' || data.percentage === 100) {
             setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
           }
         }
       };
 
+      const handleTestExecutionProgress = (data: any) => {
+        if (data.testRunId === parseInt(id!)) {
+          // Update test execution progress
+          if (data.phase === 'completed') {
+            setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
+            setRunningTests(false);
+          }
+        }
+      };
       socket.on('crawlerProgress', handleCrawlerProgress);
+      socket.on('testExecutionProgress', handleTestExecutionProgress);
 
       return () => {
         socket.off('crawlerProgress', handleCrawlerProgress);
+        socket.off('testExecutionProgress', handleTestExecutionProgress);
       };
     }
   }, [socket, id]);
@@ -232,7 +245,7 @@ export default function TestRunDetails() {
           {(crawlerProgress?.canStopCrawling || testRun.status === 'running') && (
             <button
               onClick={handleStopCrawlingAndGenerate}
-              disabled={stoppingCrawler}
+      {testRun.status === 'running' && (
               className="inline-flex items-center px-4 py-2 border border-orange-300 text-sm font-medium rounded-md shadow-sm text-orange-700 bg-orange-50 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
             >
               {stoppingCrawler ? (
@@ -321,6 +334,16 @@ export default function TestRunDetails() {
         </div>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {testRun.status === 'ready_for_execution' && (
+        <button
+          onClick={handleRunTests}
+          className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+        >
+          <PlayCircle className="h-4 w-4 mr-2" />
+          Run Selected Tests
+        </button>
+      )}
+      
         <div className="lg:col-span-2 space-y-6">
           {/* Status Card */}
           <div className="card">

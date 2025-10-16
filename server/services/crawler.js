@@ -51,13 +51,10 @@ class PlaywrightCrawler {
       // Generate tests first
       await this.generateTests();
       
-      // Then execute tests
-      this.phase = 'executing';
-      this.emitProgress('Test generation completed. Starting test execution...', 70, 'executing');
-      await this.executeGeneratedTests();
-      
-      await this.updateRunStatus('completed');
-      this.emitProgress('All tests completed successfully', 100, 'completed');
+      // Mark as ready for test execution
+      await this.updateRunStatus('ready_for_execution');
+      this.phase = 'ready';
+      this.emitProgress('Crawling and test generation completed. Ready for test execution.', 100, 'ready');
       
     } catch (error) {
       logger.error(`Crawler error: ${error.message}`);
@@ -73,7 +70,7 @@ class PlaywrightCrawler {
     this.shouldStopCrawling = true;
     
     // Don't change phase here - let the main loop handle it
-    this.emitProgress('Crawling will stop after current page. Moving to test generation...', 
+    this.emitProgress('Crawling will stop after current page. Finalizing test generation...', 
       Math.min((this.discoveredPages.length / this.config.max_pages) * 40, 40), 'crawling');
     
     // The main loop will handle the transition
@@ -130,7 +127,7 @@ class PlaywrightCrawler {
     logger.info(`Successfully launched ${this.browsers.length} browser(s): ${this.browsers.map(b => b.type).join(', ')}`);
   }
 
-  async crawlWebsite() {
+  async crawlAndGenerateTests() {
     const browser = this.browsers[0].browser; // Use first available browser
     const context = await browser.newContext();
     
@@ -147,12 +144,12 @@ class PlaywrightCrawler {
 
     const page = await context.newPage();
     
-    await this.crawlPage(page, this.config.target_url, 0);
+    await this.crawlPageAndGenerateTests(page, this.config.target_url, 0);
     
     await context.close();
   }
 
-  async crawlPage(page, url, depth) {
+  async crawlPageAndGenerateTests(page, url, depth) {
     // Check if we should stop crawling
     if (this.shouldStopCrawling) {
       logger.info('Crawling stopped by user request');
@@ -234,6 +231,8 @@ class PlaywrightCrawler {
       this.discoveredPages.push({ id: pageId, url, title, elementsCount, depth });
 
       // Update counts and coverage in real-time
+      // Generate test cases for this individual page immediately
+      await this.generateTestCasesForPage(pageData);
       const currentCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
       await pool.query(`
         UPDATE test_runs 
@@ -250,7 +249,7 @@ class PlaywrightCrawler {
       // Crawl child pages
       for (const opportunity of navigationOpportunities.slice(0, 8)) { // Limit opportunities per page
         if (this.isRunning && !this.visitedUrls.has(opportunity.url) && !this.shouldStopCrawling) {
-          await this.crawlPage(page, opportunity.url, depth + 1);
+          await this.crawlPageAndGenerateTests(page, opportunity.url, depth + 1);
         }
       }
 
@@ -724,20 +723,57 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
       logger.error(`Error finding navigation opportunities: ${error.message}`);
       return [];
     }
+  async generateTestCasesForPage(pageData) {
+    try {
+      logger.info(`Generating test cases for page: ${pageData.url}`);
+      
+      // Generate individual page test cases
+      const testCases = await this.testGenerator.generateTestCases({
+        url: pageData.url,
+        title: pageData.title,
+        elementsCount: pageData.elementsCount
+      });
+      
+      let generatedCount = 0;
+      for (const testCase of testCases) {
+        try {
+          await pool.query(`
+            INSERT INTO test_cases (test_run_id, page_id, test_type, test_name, test_description, 
+                                   test_steps, expected_result, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+          `, [
+            this.testRunId, 
+            pageData.id,
+            testCase.type, 
+            testCase.name, 
+            testCase.description,
+            JSON.stringify(testCase.steps || []), 
+            testCase.expectedResult
+          ]);
+          generatedCount++;
+        } catch (error) {
+          logger.error(`Error saving test case: ${error.message}`);
+        }
+      }
+      
+      // Update total test cases count
+      await pool.query(`
+        UPDATE test_runs 
+        SET total_test_cases = (SELECT COUNT(*) FROM test_cases WHERE test_run_id = $1)
+        WHERE id = $1
+      `, [this.testRunId]);
+      
+      logger.info(`Generated ${generatedCount} test cases for page: ${pageData.url}`);
+      
+    } catch (error) {
+      logger.error(`Error generating test cases for page ${pageData.url}: ${error.message}`);
+    }
   }
-  async generateTests() {
-    this.emitProgress('Generating test cases...', 50);
+  }
+  async generateFlowTests() {
+    this.phase = 'generating';
+    this.emitProgress('Generating flow-based test cases...', 80, 'generating');
     
-    // Update final page count and initial coverage
-    const finalCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
-    await pool.query(`
-      UPDATE test_runs 
-      SET total_pages_discovered = $1, coverage_percentage = $2
-      WHERE id = $3
-    `, [this.discoveredPages.length, finalCoverage, this.testRunId]);
-
-    this.emitProgress(`Starting test generation for ${this.discoveredPages.length} pages...`, 55, 'generating');
-
     // Group pages for flow-based test generation
     const pageGroups = this.groupPagesForFlowTesting();
     let totalTestsGenerated = 0;
@@ -767,23 +803,23 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
         }
         
         // Update progress
-        const generationProgress = 55 + ((pageGroups.indexOf(group) + 1) / pageGroups.length) * 15;
-        this.emitProgress(`Generated ${totalTestsGenerated} test cases...`, generationProgress, 'generating');
+        const generationProgress = 80 + ((pageGroups.indexOf(group) + 1) / pageGroups.length) * 15;
+        this.emitProgress(`Generated ${totalFlowTestsGenerated} flow test cases...`, generationProgress, 'generating');
         
       } catch (error) {
         logger.error(`Error generating tests for page group: ${error.message}`);
       }
     }
 
-    // Update final test count
+    // Update final test count including both individual and flow tests
     await pool.query(`
       UPDATE test_runs 
-      SET total_test_cases = $1
-      WHERE id = $2
-    `, [totalTestsGenerated, this.testRunId]);
+      SET total_test_cases = (SELECT COUNT(*) FROM test_cases WHERE test_run_id = $1)
+      WHERE id = $1
+    `, [this.testRunId]);
 
-    logger.info(`Test generation completed: ${totalTestsGenerated} test cases generated`);
-    this.emitProgress(`Test generation completed: ${totalTestsGenerated} test cases generated`, 70, 'generating');
+    logger.info(`Flow test generation completed: ${totalFlowTestsGenerated} flow test cases generated`);
+    this.emitProgress(`Flow test generation completed: ${totalFlowTestsGenerated} additional flow test cases generated`, 95, 'generating');
   }
 
   async executeGeneratedTests() {
