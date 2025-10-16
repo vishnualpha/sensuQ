@@ -186,6 +186,27 @@ export default function TestRunDetails() {
       setStoppingCrawler(false);
     }
   };
+
+  const handleRunTests = async () => {
+    if (!testRun || selectedTestCases.length === 0) return;
+    
+    setRunningTests(true);
+    try {
+      await crawlerAPI.executeTests(testRun.id, selectedTestCases);
+    } catch (error) {
+      console.error('Error running tests:', error);
+    } finally {
+      setRunningTests(false);
+    }
+  };
+
+  const handleTestCaseSelection = (testCaseId: number, selected: boolean) => {
+    if (selected) {
+      setSelectedTestCases(prev => [...prev, testCaseId]);
+    } else {
+      setSelectedTestCases(prev => prev.filter(id => id !== testCaseId));
+    }
+  };
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
@@ -242,10 +263,10 @@ export default function TestRunDetails() {
         </div>
         <div className="flex items-center space-x-3">
           {/* Crawler Control Buttons */}
-          {(crawlerProgress?.canStopCrawling || testRun.status === 'running') && (
+          {testRun.status === 'running' && (
             <button
               onClick={handleStopCrawlingAndGenerate}
-      {testRun.status === 'running' && (
+              disabled={stoppingCrawler}
               className="inline-flex items-center px-4 py-2 border border-orange-300 text-sm font-medium rounded-md shadow-sm text-orange-700 bg-orange-50 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
             >
               {stoppingCrawler ? (
@@ -254,6 +275,21 @@ export default function TestRunDetails() {
                 <Square className="h-4 w-4 mr-2" />
               )}
               {stoppingCrawler ? 'Stopping...' : 'Stop & Generate Tests'}
+            </button>
+          )}
+          
+          {testRun.status === 'ready_for_execution' && (
+            <button
+              onClick={handleRunTests}
+              disabled={runningTests || selectedTestCases.length === 0}
+              className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {runningTests ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600 mr-2"></div>
+              ) : (
+                <PlayCircle className="h-4 w-4 mr-2" />
+              )}
+              {runningTests ? 'Running Tests...' : `Run Selected Tests (${selectedTestCases.length})`}
             </button>
           )}
           
@@ -334,16 +370,6 @@ export default function TestRunDetails() {
         </div>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {testRun.status === 'ready_for_execution' && (
-        <button
-          onClick={handleRunTests}
-          className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-        >
-          <PlayCircle className="h-4 w-4 mr-2" />
-          Run Selected Tests
-        </button>
-      )}
-      
         <div className="lg:col-span-2 space-y-6">
           {/* Status Card */}
           <div className="card">
