@@ -376,7 +376,7 @@ class TestExecutor {
     await pool.query(`
       UPDATE test_executions 
       SET status = $1, end_time = CURRENT_TIMESTAMP
-      WHERE id = $3
+      WHERE id = $2
     `, [status, this.executionId]);
   }
 
