@@ -192,7 +192,7 @@ export default function TestRunDetails() {
     
     setRunningTests(true);
     try {
-      await testAPI.runSelectedTests(testRun.id, selectedTestCases);
+      await crawlerAPI.executeTests(testRun.id, selectedTestCases);
     } catch (error) {
       console.error('Error running tests:', error);
     } finally {
@@ -207,7 +207,6 @@ export default function TestRunDetails() {
       setSelectedTestCases(prev => prev.filter(id => id !== testCaseId));
     }
   };
-
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
@@ -285,8 +284,12 @@ export default function TestRunDetails() {
               disabled={runningTests || selectedTestCases.length === 0}
               className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
             >
-              <PlayCircle className="h-4 w-4 mr-2" />
-              Run Selected Tests
+              {runningTests ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+              ) : (
+                <PlayCircle className="h-4 w-4 mr-2" />
+              )}
+              {runningTests ? 'Running...' : 'Run Selected Tests'}
             </button>
           )}
           
