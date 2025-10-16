@@ -111,6 +111,9 @@ router.get('/runs/:id/executions', async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching test executions:', error);
+  }
+}
+)
 router.get('/executions/:id', async (req, res) => {
   try {
     const { id } = req.params;
