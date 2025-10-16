@@ -126,11 +126,11 @@ router.post('/test', async (req, res) => {
 
     const result = await pool.query(`
       INSERT INTO test_configs (name, target_url, credentials, max_depth, max_pages, 
-                               include_accessibility, include_performance, llm_config_id, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                               include_accessibility, include_performance, llm_config_id, created_by, test_generation_depth)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `, [name, targetUrl, encryptedCredentials, maxDepth || 3, maxPages || 50, 
-        includeAccessibility !== false, includePerformance !== false, llmConfigId, req.user.id]);
+        includeAccessibility !== false, includePerformance !== false, llmConfigId, req.user.id, 3]);
 
     res.status(201).json(result.rows[0]);
   } catch (error) {

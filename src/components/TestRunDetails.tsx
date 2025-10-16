@@ -255,14 +255,19 @@ export default function TestRunDetails() {
       </div>
 
       {/* Crawler Progress */}
-      {crawlerProgress && testRun?.status === 'running' && (
+      {crawlerProgress && (testRun?.status === 'running' || crawlerProgress.phase !== 'completed') && (
         <div className="card">
           <div className="card-body">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center">
-                <Activity className="h-5 w-5 text-blue-500 mr-2" />
+                {crawlerProgress.phase === 'crawling' && <Activity className="h-5 w-5 text-blue-500 mr-2 animate-spin" />}
+                {crawlerProgress.phase === 'generating' && <FileText className="h-5 w-5 text-purple-500 mr-2" />}
+                {crawlerProgress.phase === 'executing' && <PlayCircle className="h-5 w-5 text-green-500 mr-2" />}
                 <h3 className="text-lg font-medium text-gray-900">
-                  {crawlerProgress.isCrawling ? 'Crawling in Progress' : 'Generating Tests'}
+                  {crawlerProgress.phase === 'crawling' && 'Crawling in Progress'}
+                  {crawlerProgress.phase === 'generating' && 'Generating Test Cases'}
+                  {crawlerProgress.phase === 'executing' && 'Executing Tests'}
+                  {crawlerProgress.phase === 'completed' && 'Process Completed'}
                 </h3>
               </div>
               <div className="text-sm text-gray-500">
@@ -277,15 +282,32 @@ export default function TestRunDetails() {
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    crawlerProgress.phase === 'crawling' ? 'bg-blue-600' :
+                    crawlerProgress.phase === 'generating' ? 'bg-purple-600' :
+                    crawlerProgress.phase === 'executing' ? 'bg-green-600' :
+                    'bg-gray-600'
+                  }`}
                   style={{ width: `${crawlerProgress.percentage}%` }}
                 ></div>
               </div>
             </div>
             
-            {crawlerProgress.isCrawling && (
+            {crawlerProgress.phase === 'crawling' && crawlerProgress.canStopCrawling && (
               <p className="text-sm text-gray-500 mt-2">
                 💡 You can stop crawling at any time and proceed directly to test generation with the pages already discovered.
+              </p>
+            )}
+            
+            {crawlerProgress.phase === 'generating' && (
+              <p className="text-sm text-gray-500 mt-2">
+                🧠 AI is analyzing discovered pages and generating comprehensive test cases...
+              </p>
+            )}
+            
+            {crawlerProgress.phase === 'executing' && (
+              <p className="text-sm text-gray-500 mt-2">
+                ⚡ Running generated test cases across multiple browsers...
               </p>
             )}
           </div>

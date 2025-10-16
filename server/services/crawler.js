@@ -971,19 +971,19 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
     `, [status, errorMessage, this.testRunId]);
   }
 
-  emitProgress(message, percentage) {
+  emitProgress(message, percentage, phase) {
     this.io.emit('crawlerProgress', {
       testRunId: this.testRunId,
       message,
       percentage,
-      isCrawling: this.isCrawling,
-      canStopCrawling: this.isRunning && !this.shouldStopCrawling,
+      phase: phase || this.phase,
+      canStopCrawling: this.isRunning && this.phase === 'crawling' && !this.shouldStopCrawling,
       discoveredPagesCount: this.discoveredPages.length,
       timestamp: new Date().toISOString()
     });
     
     // Also log progress for debugging
-    logger.info(`Crawler Progress [${this.testRunId}]: ${message} (${Math.round(percentage)}%)`);
+    logger.info(`Crawler Progress [${this.testRunId}] [${phase}]: ${message} (${Math.round(percentage)}%)`);
   }
 
   async cleanup() {
