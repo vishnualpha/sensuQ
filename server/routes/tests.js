@@ -111,14 +111,10 @@ router.get('/runs/:id/executions', async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching test executions:', error);
-    res.status(500).json({ error: 'Failed to fetch test executions' });
-  }
-});
+router.get('/executions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
 
-    // Get execution details
-    const executionResult = await pool.query(`
-      SELECT te.*, tr.config_name, tr.target_url
-      FROM test_executions te
     // Get execution details
     const executionResult = await pool.query(`
       SELECT te.*, tc.name as config_name, tc.target_url
@@ -126,7 +122,6 @@ router.get('/runs/:id/executions', async (req, res) => {
       JOIN test_runs tr ON te.test_run_id = tr.id
       JOIN test_configs tc ON tr.test_config_id = tc.id
       WHERE te.id = $1
-    )
     `, [id]);
 
     if (executionResult.rows.length === 0) {
