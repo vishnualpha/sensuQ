@@ -100,8 +100,6 @@ export default function TestRunDetails() {
   const [activeTab, setActiveTab] = useState('overview');
   const [crawlerProgress, setCrawlerProgress] = useState<any>(null);
   const [stoppingCrawler, setStoppingCrawler] = useState(false);
-  const [selectedTestCases, setSelectedTestCases] = useState<number[]>([]);
-  const [runningTests, setRunningTests] = useState(false);
   const { socket } = useSocket();
 
   useEffect(() => {
@@ -116,28 +114,17 @@ export default function TestRunDetails() {
         if (data.testRunId === parseInt(id!)) {
           setCrawlerProgress(data);
           
-          // Refresh test run details when crawling/generation completes
-          if (data.phase === 'ready' || data.percentage === 100) {
+          // Refresh test run details when progress updates
+          if (data.percentage === 100) {
             setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
           }
         }
       };
 
-      const handleTestExecutionProgress = (data: any) => {
-        if (data.testRunId === parseInt(id!)) {
-          // Update test execution progress
-          if (data.phase === 'completed') {
-            setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
-            setRunningTests(false);
-          }
-        }
-      };
       socket.on('crawlerProgress', handleCrawlerProgress);
-      socket.on('testExecutionProgress', handleTestExecutionProgress);
 
       return () => {
         socket.off('crawlerProgress', handleCrawlerProgress);
-        socket.off('testExecutionProgress', handleTestExecutionProgress);
       };
     }
   }, [socket, id]);
@@ -188,25 +175,15 @@ export default function TestRunDetails() {
   };
 
   const handleRunTests = async () => {
-    if (!testRun || selectedTestCases.length === 0) return;
+    if (!testRun) return;
     
-    setRunningTests(true);
     try {
-      await crawlerAPI.executeTests(testRun.id, selectedTestCases);
+      await testAPI.runTests(testRun.id);
     } catch (error) {
       console.error('Error running tests:', error);
-    } finally {
-      setRunningTests(false);
     }
   };
 
-  const handleTestCaseSelection = (testCaseId: number, selected: boolean) => {
-    if (selected) {
-      setSelectedTestCases(prev => [...prev, testCaseId]);
-    } else {
-      setSelectedTestCases(prev => prev.filter(id => id !== testCaseId));
-    }
-  };
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
@@ -263,7 +240,7 @@ export default function TestRunDetails() {
         </div>
         <div className="flex items-center space-x-3">
           {/* Crawler Control Buttons */}
-          {testRun.status === 'running' && (
+          {(crawlerProgress?.canStopCrawling || testRun.status === 'running') && (
             <button
               onClick={handleStopCrawlingAndGenerate}
               disabled={stoppingCrawler}
@@ -277,19 +254,14 @@ export default function TestRunDetails() {
               {stoppingCrawler ? 'Stopping...' : 'Stop & Generate Tests'}
             </button>
           )}
-          
+
           {testRun.status === 'ready_for_execution' && (
             <button
               onClick={handleRunTests}
-              disabled={runningTests || selectedTestCases.length === 0}
-              className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
             >
-              {runningTests ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600 mr-2"></div>
-              ) : (
-                <PlayCircle className="h-4 w-4 mr-2" />
-              )}
-              {runningTests ? 'Running Tests...' : `Run Selected Tests (${selectedTestCases.length})`}
+              <PlayCircle className="h-4 w-4 mr-2" />
+              Run Selected Tests
             </button>
           )}
           
@@ -541,29 +513,6 @@ export default function TestRunDetails() {
                     </div>
                   </div>
                   
-                  {/* Test Selection Controls */}
-                  {testRun.status === 'ready_for_execution' && (
-                    <div className="flex items-center justify-between mb-4 p-3 bg-blue-50 rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <span className="text-sm font-medium text-blue-900">
-                          {selectedTestCases.length} of {testRun.testCases.length} tests selected
-                        </span>
-                        <button
-                          onClick={() => setSelectedTestCases(testRun.testCases.map(tc => tc.id))}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Select All
-                        </button>
-                        <button
-                          onClick={() => setSelectedTestCases([])}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  
                   {testRun.testCases.map((testCase, index) => (
                     <div key={index} className={`border-l-4 border rounded-lg p-4 ${
                       testCase.status === 'passed' ? 'border-green-200 bg-green-50' :
@@ -572,35 +521,17 @@ export default function TestRunDetails() {
                     }`}>
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          {/* Test Selection Checkbox */}
-                          {testRun.status === 'ready_for_execution' && (
-                            <div className="flex items-center mb-2">
-                              <input
-                                type="checkbox"
-                                id={`test-${testCase.id}`}
-                                checked={selectedTestCases.includes(testCase.id)}
-                                onChange={(e) => handleTestCaseSelection(testCase.id, e.target.checked)}
-                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                              />
-                              <label htmlFor={`test-${testCase.id}`} className="ml-2 text-sm text-gray-700">
-                                Select for execution
-                              </label>
-                            </div>
-                          )}
-                          
                           {/* Test Type Badge */}
                           <div className="flex items-center space-x-2 mb-2">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                               testCase.test_type === 'functional' ? 'bg-green-100 text-green-800' :
                               testCase.test_type === 'accessibility' ? 'bg-purple-100 text-purple-800' :
                               testCase.test_type === 'performance' ? 'bg-orange-100 text-orange-800' :
-                              testCase.test_type === 'flow' ? 'bg-blue-100 text-blue-800' :
                               'bg-gray-100 text-gray-800'
                             }`}>
                               {testCase.test_type === 'functional' && <CheckCircle className="h-3 w-3 mr-1" />}
                               {testCase.test_type === 'accessibility' && <Shield className="h-3 w-3 mr-1" />}
                               {testCase.test_type === 'performance' && <Zap className="h-3 w-3 mr-1" />}
-                              {testCase.test_type === 'flow' && <Activity className="h-3 w-3 mr-1" />}
                               {testCase.test_type?.charAt(0).toUpperCase() + testCase.test_type?.slice(1) || 'Unknown'}
                             </span>
                           </div>
