@@ -54,7 +54,7 @@ class PlaywrightCrawler {
       // Then execute tests
       this.phase = 'executing';
       this.emitProgress('Test generation completed. Starting test execution...', 70, 'executing');
-      await this.executeTests();
+      await this.executeGeneratedTests();
       
       await this.updateRunStatus('completed');
       this.emitProgress('All tests completed successfully', 100, 'completed');
@@ -71,9 +71,10 @@ class PlaywrightCrawler {
   async stopCrawlingAndGenerateTests() {
     logger.info(`Stopping crawling for test run ${this.testRunId} and proceeding to test generation`);
     this.shouldStopCrawling = true;
-    this.phase = 'generating';
     
-    this.emitProgress('Crawling stopped by user. Moving to test generation...', 50, 'generating');
+    // Don't change phase here - let the main loop handle it
+    this.emitProgress('Crawling will stop after current page. Moving to test generation...', 
+      Math.min((this.discoveredPages.length / this.config.max_pages) * 40, 40), 'crawling');
     
     // The main loop will handle the transition
   }
@@ -724,14 +725,9 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
       return [];
     }
   }
-  async generateAndExecuteTests() {
+  async generateTests() {
     this.emitProgress('Generating test cases...', 50);
     
-    let totalTests = 0;
-    let passedTests = 0;
-    let failedTests = 0;
-    let flakyTests = 0;
-
     // Update final page count and initial coverage
     const finalCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
     await pool.query(`
@@ -740,107 +736,209 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
       WHERE id = $3
     `, [this.discoveredPages.length, finalCoverage, this.testRunId]);
 
-    this.emitProgress(`Starting test generation for ${this.discoveredPages.length} pages...`, 55);
+    this.emitProgress(`Starting test generation for ${this.discoveredPages.length} pages...`, 55, 'generating');
 
-    for (const pageData of this.discoveredPages) {
+    // Group pages for flow-based test generation
+    const pageGroups = this.groupPagesForFlowTesting();
+    let totalTestsGenerated = 0;
+
+    for (const group of pageGroups) {
       try {
-        // Handle popups during test generation as well
-        if (this.browsers.length > 0) {
-          const browser = this.browsers[0].browser;
-          const context = await browser.newContext();
-          const page = await context.newPage();
-          
-          try {
-            await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
-            await this.handlePopupsAndModals(page);
-            await context.close();
-          } catch (error) {
-            logger.warn(`Could not handle popups for ${pageData.url}: ${error.message}`);
-            await context.close();
-          }
-        }
-        
-        // Generate test cases using AI
-        const testCases = await this.testGenerator.generateTestCases(pageData);
+        // Generate flow-based test cases for the group
+        const testCases = await this.testGenerator.generateFlowTestCases(group);
         
         for (const testCase of testCases) {
-          totalTests++;
-          
-          let finalStatus = 'passed';
-          let isFlaky = false;
-          let executionTime = 0;
-          let results = [];
-
-          try {
-            // Execute test case across all browsers
-            results = await this.executeTestCase(testCase, pageData);
-            
-            // Determine final status based on cross-browser results
-            const passCount = results.filter(r => r.status === 'passed').length;
-            const failCount = results.filter(r => r.status === 'failed').length;
-            
-            if (passCount > 0 && failCount > 0) {
-              finalStatus = 'flaky';
-              isFlaky = true;
-              flakyTests++;
-            } else if (failCount === results.length) {
-              finalStatus = 'failed';
-              failedTests++;
-            } else {
-              finalStatus = 'passed';
-              passedTests++;
-            }
-
-            executionTime = results.reduce((sum, r) => sum + r.executionTime, 0) / results.length;
-          } catch (error) {
-            finalStatus = 'failed';
-            failedTests++;
-            results = [{ browser: 'unknown', status: 'failed', executionTime: 0, errorDetails: error.message }];
-          }
-
-          // Save test case result
+          // Save test case to database
           await pool.query(`
             INSERT INTO test_cases (test_run_id, page_id, test_type, test_name, test_description, 
-                                   test_steps, expected_result, actual_result, status, 
-                                   execution_time, self_healed, error_details)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                                   test_steps, expected_result, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
           `, [
-            this.testRunId, pageData.id, testCase.type, testCase.name, testCase.description,
-            JSON.stringify(testCase.steps || []), testCase.expectedResult, 
-            JSON.stringify(results), finalStatus, Math.round(executionTime), isFlaky,
-            results.find(r => r.errorDetails)?.errorDetails || null
+            this.testRunId, 
+            group[0].id, // Associate with first page in group
+            testCase.type, 
+            testCase.name, 
+            testCase.description,
+            JSON.stringify(testCase.steps || []), 
+            testCase.expectedResult
           ]);
-
-          // Update progress and counts in real-time
-          const testProgress = 55 + (totalTests / (this.discoveredPages.length * 3)) * 35;
-          await pool.query(`
-            UPDATE test_runs 
-            SET total_test_cases = $1, passed_tests = $2, failed_tests = $3, flaky_tests = $4
-            WHERE id = $5
-          `, [totalTests, passedTests, failedTests, flakyTests, this.testRunId]);
           
-          this.emitProgress(`Generated ${totalTests} tests (${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky)`, Math.min(testProgress, 90));
+          totalTestsGenerated++;
         }
         
+        // Update progress
+        const generationProgress = 55 + ((pageGroups.indexOf(group) + 1) / pageGroups.length) * 15;
+        this.emitProgress(`Generated ${totalTestsGenerated} test cases...`, generationProgress, 'generating');
+        
       } catch (error) {
-        logger.error(`Error generating tests for page ${pageData.url}: ${error.message}`);
+        logger.error(`Error generating tests for page group: ${error.message}`);
       }
     }
 
-    // Calculate final coverage based on pages discovered and tests generated
-    const pageCoverage = this.discoveredPages.length > 0 ? 
-      Math.min((totalTests / (this.discoveredPages.length * 3)) * 100, 100) : 0;
-    const finalTestCoverage = Math.max(finalCoverage, pageCoverage);
+    // Update final test count
+    await pool.query(`
+      UPDATE test_runs 
+      SET total_test_cases = $1
+      WHERE id = $2
+    `, [totalTestsGenerated, this.testRunId]);
+
+    logger.info(`Test generation completed: ${totalTestsGenerated} test cases generated`);
+    this.emitProgress(`Test generation completed: ${totalTestsGenerated} test cases generated`, 70, 'generating');
+  }
+
+  async executeGeneratedTests() {
+    this.emitProgress('Starting test execution...', 70, 'executing');
+    
+    // Get all pending test cases
+    const testCasesResult = await pool.query(`
+      SELECT tc.*, dp.url, dp.title 
+      FROM test_cases tc
+      JOIN discovered_pages dp ON tc.page_id = dp.id
+      WHERE tc.test_run_id = $1 AND tc.status = 'pending'
+      ORDER BY tc.id
+    `, [this.testRunId]);
+    
+    const testCases = testCasesResult.rows;
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = 0;
+    let flakyTests = 0;
+
+    for (const testCase of testCases) {
+      try {
+        totalTests++;
+        
+        let finalStatus = 'passed';
+        let isFlaky = false;
+        let executionTime = 0;
+        let results = [];
+        let actualResult = '';
+        let errorDetails = null;
+
+        try {
+          // Parse test steps
+          const testSteps = typeof testCase.test_steps === 'string' ? 
+            JSON.parse(testCase.test_steps) : testCase.test_steps || [];
+          
+          // Execute test case across all browsers
+          results = await this.executeTestCase({
+            name: testCase.test_name,
+            description: testCase.test_description,
+            steps: testSteps,
+            expectedResult: testCase.expected_result
+          }, { url: testCase.url, title: testCase.title });
+          
+          // Determine final status based on cross-browser results
+          const passCount = results.filter(r => r.status === 'passed').length;
+          const failCount = results.filter(r => r.status === 'failed').length;
+          
+          if (passCount > 0 && failCount > 0) {
+            finalStatus = 'flaky';
+            isFlaky = true;
+            flakyTests++;
+          } else if (failCount === results.length) {
+            finalStatus = 'failed';
+            failedTests++;
+          } else {
+            finalStatus = 'passed';
+            passedTests++;
+          }
+
+          executionTime = results.reduce((sum, r) => sum + r.executionTime, 0) / results.length;
+          actualResult = JSON.stringify(results);
+          errorDetails = results.find(r => r.errorDetails)?.errorDetails || null;
+          
+        } catch (error) {
+          finalStatus = 'failed';
+          failedTests++;
+          executionTime = 0;
+          actualResult = JSON.stringify([{ browser: 'unknown', status: 'failed', executionTime: 0, errorDetails: error.message }]);
+          errorDetails = error.message;
+        }
+
+        // Update test case result
+        await pool.query(`
+          UPDATE test_cases 
+          SET actual_result = $1, status = $2, execution_time = $3, self_healed = $4, error_details = $5, executed_at = CURRENT_TIMESTAMP
+          WHERE id = $6
+        `, [actualResult, finalStatus, Math.round(executionTime), isFlaky, errorDetails, testCase.id]);
+
+        // Update progress and counts in real-time
+        const executionProgress = 70 + (totalTests / testCases.length) * 25;
+        await pool.query(`
+          UPDATE test_runs 
+          SET passed_tests = $1, failed_tests = $2, flaky_tests = $3
+          WHERE id = $4
+        `, [passedTests, failedTests, flakyTests, this.testRunId]);
+        
+        this.emitProgress(`Executed ${totalTests}/${testCases.length} tests (${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky)`, Math.min(executionProgress, 95), 'executing');
+        
+      } catch (error) {
+        logger.error(`Error executing test case ${testCase.id}: ${error.message}`);
+      }
+    }
+
+    // Calculate final coverage
+    const finalTestCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
 
     await pool.query(`
       UPDATE test_runs 
-      SET total_pages_discovered = $1, total_test_cases = $2, passed_tests = $3, 
-          failed_tests = $4, flaky_tests = $5, coverage_percentage = $6
-      WHERE id = $7
-    `, [this.discoveredPages.length, totalTests, passedTests, failedTests, flakyTests, finalTestCoverage, this.testRunId]);
+      SET passed_tests = $1, failed_tests = $2, flaky_tests = $3, coverage_percentage = $4
+      WHERE id = $5
+    `, [passedTests, failedTests, flakyTests, finalTestCoverage, this.testRunId]);
 
     logger.info(`Test execution completed: ${totalTests} total, ${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky`);
-    this.emitProgress(`Test execution completed: ${totalTests} tests generated with ${Math.round(finalTestCoverage)}% coverage`, 95);
+    this.emitProgress(`Test execution completed: ${totalTests} tests executed with ${Math.round(finalTestCoverage)}% coverage`, 95, 'executing');
+  }
+
+  groupPagesForFlowTesting() {
+    const groups = [];
+    const testGenerationDepth = this.config.test_generation_depth || 3;
+    
+    // Group pages by URL path similarity and depth
+    const pagesByDomain = {};
+    
+    for (const page of this.discoveredPages) {
+      try {
+        const url = new URL(page.url);
+        const domain = url.hostname;
+        const pathParts = url.pathname.split('/').filter(p => p);
+        
+        if (!pagesByDomain[domain]) {
+          pagesByDomain[domain] = {};
+        }
+        
+        // Group by first path segment (or root if none)
+        const groupKey = pathParts.length > 0 ? pathParts[0] : 'root';
+        
+        if (!pagesByDomain[domain][groupKey]) {
+          pagesByDomain[domain][groupKey] = [];
+        }
+        
+        pagesByDomain[domain][groupKey].push(page);
+      } catch (error) {
+        // If URL parsing fails, create a single-page group
+        groups.push([page]);
+      }
+    }
+    
+    // Create groups with specified depth
+    for (const domain of Object.keys(pagesByDomain)) {
+      for (const groupKey of Object.keys(pagesByDomain[domain])) {
+        const pages = pagesByDomain[domain][groupKey];
+        
+        // Sort by crawl depth and take up to testGenerationDepth pages
+        pages.sort((a, b) => (a.depth || 0) - (b.depth || 0));
+        
+        // Create groups of specified size
+        for (let i = 0; i < pages.length; i += testGenerationDepth) {
+          const group = pages.slice(i, i + testGenerationDepth);
+          groups.push(group);
+        }
+      }
+    }
+    
+    return groups.length > 0 ? groups : [this.discoveredPages.slice(0, testGenerationDepth)];
   }
 
   async executeTestCase(testCase, pageData) {
