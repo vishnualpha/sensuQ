@@ -98,6 +98,7 @@ export default function TestRunDetails() {
   const [testRun, setTestRun] = useState<TestRunDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [testTypeFilter, setTestTypeFilter] = useState('all');
   const [crawlerProgress, setCrawlerProgress] = useState<any>(null);
   const [stoppingCrawler, setStoppingCrawler] = useState(false);
   const [selectedTestCases, setSelectedTestCases] = useState<number[]>([]);
@@ -207,6 +208,39 @@ export default function TestRunDetails() {
       setSelectedTestCases(prev => prev.filter(id => id !== testCaseId));
     }
   };
+
+  // Filter test cases based on selected type
+  const getFilteredTestCases = () => {
+    if (!testRun?.testCases) return [];
+    
+    if (testTypeFilter === 'all') {
+      return testRun.testCases;
+    }
+    
+    return testRun.testCases.filter(testCase => 
+      testCase.test_type === testTypeFilter
+    );
+  };
+
+  const filteredTestCases = getFilteredTestCases();
+
+  // Get test type counts for filter buttons
+  const getTestTypeCounts = () => {
+    if (!testRun?.testCases) return {};
+    
+    const counts = testRun.testCases.reduce((acc, testCase) => {
+      const type = testCase.test_type || 'unknown';
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    return {
+      all: testRun.testCases.length,
+      ...counts
+    };
+  };
+
+  const testTypeCounts = getTestTypeCounts();
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
@@ -526,11 +560,64 @@ export default function TestRunDetails() {
                   <div className="flex items-center space-x-4 mb-6">
                     <span className="text-sm font-medium text-gray-700">Filter by type:</span>
                     <div className="flex space-x-2">
-                      <button className="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-                        All Tests
+                      <button 
+                        onClick={() => setTestTypeFilter('all')}
+                        className={`px-3 py-1 text-xs rounded-full ${
+                          testTypeFilter === 'all' 
+                            ? 'bg-blue-100 text-blue-800' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-700'
+                        }`}
+                      >
+                        All Tests ({testTypeCounts.all || 0})
                       </button>
-                      <button className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-800">
-                        Functional
+                      {testTypeCounts.functional > 0 && (
+                        <button 
+                          onClick={() => setTestTypeFilter('functional')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'functional' 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-800'
+                          }`}
+                        >
+                          Functional ({testTypeCounts.functional})
+                        </button>
+                      )}
+                      {testTypeCounts.accessibility > 0 && (
+                        <button 
+                          onClick={() => setTestTypeFilter('accessibility')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'accessibility' 
+                              ? 'bg-purple-100 text-purple-800' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-purple-100 hover:text-purple-800'
+                          }`}
+                        >
+                          Accessibility ({testTypeCounts.accessibility})
+                        </button>
+                      )}
+                      {testTypeCounts.performance > 0 && (
+                        <button 
+                          onClick={() => setTestTypeFilter('performance')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'performance' 
+                              ? 'bg-orange-100 text-orange-800' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-800'
+                          }`}
+                        >
+                          Performance ({testTypeCounts.performance})
+                        </button>
+                      )}
+                      {testTypeCounts.flow > 0 && (
+                        <button 
+                          onClick={() => setTestTypeFilter('flow')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'flow' 
+                              ? 'bg-indigo-100 text-indigo-800' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-indigo-100 hover:text-indigo-800'
+                          }`}
+                        >
+                          Flow ({testTypeCounts.flow})
+                        </button>
+                      )}
                       </button>
                       <button className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-purple-100 hover:text-purple-800">
                         Accessibility
@@ -546,13 +633,18 @@ export default function TestRunDetails() {
                     <div className="flex items-center justify-between mb-4 p-3 bg-blue-50 rounded-lg">
                       <div className="flex items-center space-x-4">
                         <span className="text-sm font-medium text-blue-900">
-                          {selectedTestCases.length} of {testRun.testCases.length} tests selected
+                          {selectedTestCases.length} of {filteredTestCases.length} tests selected
+                          {testTypeFilter !== 'all' && (
+                            <span className="text-xs text-blue-700 ml-1">
+                              (filtered from {testRun.testCases.length} total)
+                            </span>
+                          )}
                         </span>
                         <button
-                          onClick={() => setSelectedTestCases(testRun.testCases.map(tc => tc.id))}
+                          onClick={() => setSelectedTestCases(filteredTestCases.map(tc => tc.id))}
                           className="text-xs text-blue-600 hover:text-blue-800"
                         >
-                          Select All
+                          Select All {testTypeFilter !== 'all' ? `(${testTypeFilter})` : ''}
                         </button>
                         <button
                           onClick={() => setSelectedTestCases([])}
@@ -564,7 +656,7 @@ export default function TestRunDetails() {
                     </div>
                   )}
                   
-                  {testRun.testCases.map((testCase, index) => (
+                  {filteredTestCases.map((testCase, index) => (
                     <div key={index} className={`border-l-4 border rounded-lg p-4 ${
                       testCase.status === 'passed' ? 'border-green-200 bg-green-50' :
                       testCase.status === 'failed' ? 'border-red-200 bg-red-50' :
@@ -688,6 +780,25 @@ export default function TestRunDetails() {
                       )}
                     </div>
                   ))}
+                  
+                  {/* No tests message when filtered */}
+                  {filteredTestCases.length === 0 && testRun.testCases.length > 0 && (
+                    <div className="text-center py-8">
+                      <FileText className="mx-auto h-12 w-12 text-gray-400" />
+                      <h3 className="mt-2 text-sm font-medium text-gray-900">
+                        No {testTypeFilter} tests found
+                      </h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Try selecting a different test type filter.
+                      </p>
+                      <button
+                        onClick={() => setTestTypeFilter('all')}
+                        className="mt-3 text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        Show all tests
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
