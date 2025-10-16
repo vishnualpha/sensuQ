@@ -16,7 +16,7 @@ class PlaywrightCrawler {
     this.testGenerator = new AITestGenerator(config);
     this.browsers = [];
     this.isRunning = false;
-    this.phase = 'idle'; // 'crawling', 'generating', 'executing', 'completed'
+    this.phase = 'idle'; // 'crawling', 'generating', 'ready', 'completed'
     this.shouldStopCrawling = false;
   }
 
@@ -36,20 +36,20 @@ class PlaywrightCrawler {
         throw new Error('No browsers could be launched');
       }
 
-      // Start crawling
+      // Start crawling and generating tests
       await this.crawlAndGenerateTests();
       
       // Check if crawling was stopped manually
       if (this.shouldStopCrawling) {
         this.phase = 'generating';
-        this.emitProgress('Crawling stopped by user. Starting test generation...', 50, 'generating');
+        this.emitProgress('Crawling stopped by user. Starting flow test generation...', 50, 'generating');
       } else {
         this.phase = 'generating';
-        this.emitProgress('Crawling completed. Starting test generation...', 50, 'generating');
+        this.emitProgress('Crawling completed. Starting flow test generation...', 50, 'generating');
       }
       
-      // Generate tests first
-      await this.generateTests();
+      // Generate flow tests
+      await this.generateFlowTests();
       
       // Mark as ready for test execution
       await this.updateRunStatus('ready_for_execution');
@@ -75,6 +75,7 @@ class PlaywrightCrawler {
     
     // The main loop will handle the transition
   }
+
   async launchBrowsers() {
     const browserConfigs = [
       {
@@ -228,11 +229,13 @@ class PlaywrightCrawler {
       `, [this.testRunId, url, title, elementsCount, screenshotPath, screenshotData, imageSize, imageFormat, depth]);
 
       const pageId = pageResult.rows[0].id;
-      this.discoveredPages.push({ id: pageId, url, title, elementsCount, depth });
+      const pageData = { id: pageId, url, title, elementsCount, depth };
+      this.discoveredPages.push(pageData);
 
-      // Update counts and coverage in real-time
       // Generate test cases for this individual page immediately
       await this.generateTestCasesForPage(pageData);
+      
+      // Update counts and coverage in real-time
       const currentCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
       await pool.query(`
         UPDATE test_runs 
@@ -241,7 +244,7 @@ class PlaywrightCrawler {
       `, [this.discoveredPages.length, currentCoverage, this.testRunId]);
 
       // Emit updated progress with counts
-      this.emitProgress(`Discovered ${this.discoveredPages.length} pages`, progress, 'crawling');
+      this.emitProgress(`Discovered ${this.discoveredPages.length} pages, generated tests`, progress, 'crawling');
 
       // Find navigation opportunities (links, buttons, forms)
       const navigationOpportunities = await this.findNavigationOpportunities(page);
@@ -769,6 +772,9 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
     } catch (error) {
       logger.error(`Error finding navigation opportunities: ${error.message}`);
       return [];
+    }
+  }
+
   async generateFlowTests() {
     this.phase = 'generating';
     this.emitProgress('Generating flow-based test cases...', 80, 'generating');
@@ -821,111 +827,6 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
     this.emitProgress(`Flow test generation completed: ${totalTestsGenerated} additional flow test cases generated`, 95, 'generating');
   }
 
-  async executeGeneratedTests() {
-    this.emitProgress('Starting test execution...', 70, 'executing');
-    
-    // Get all pending test cases
-    const testCasesResult = await pool.query(`
-      SELECT tc.*, dp.url, dp.title 
-      FROM test_cases tc
-      JOIN discovered_pages dp ON tc.page_id = dp.id
-      WHERE tc.test_run_id = $1 AND tc.status = 'pending'
-      ORDER BY tc.id
-    `, [this.testRunId]);
-    
-    const testCases = testCasesResult.rows;
-    let totalTests = 0;
-    let passedTests = 0;
-    let failedTests = 0;
-    let flakyTests = 0;
-
-    for (const testCase of testCases) {
-      try {
-        totalTests++;
-        
-        let finalStatus = 'passed';
-        let isFlaky = false;
-        let executionTime = 0;
-        let results = [];
-        let actualResult = '';
-        let errorDetails = null;
-
-        try {
-          // Parse test steps
-          const testSteps = typeof testCase.test_steps === 'string' ? 
-            JSON.parse(testCase.test_steps) : testCase.test_steps || [];
-          
-          // Execute test case across all browsers
-          results = await this.executeTestCase({
-            name: testCase.test_name,
-            description: testCase.test_description,
-            steps: testSteps,
-            expectedResult: testCase.expected_result
-          }, { url: testCase.url, title: testCase.title });
-          
-          // Determine final status based on cross-browser results
-          const passCount = results.filter(r => r.status === 'passed').length;
-          const failCount = results.filter(r => r.status === 'failed').length;
-          
-          if (passCount > 0 && failCount > 0) {
-            finalStatus = 'flaky';
-            isFlaky = true;
-            flakyTests++;
-          } else if (failCount === results.length) {
-            finalStatus = 'failed';
-            failedTests++;
-          } else {
-            finalStatus = 'passed';
-            passedTests++;
-          }
-
-          executionTime = results.reduce((sum, r) => sum + r.executionTime, 0) / results.length;
-          actualResult = JSON.stringify(results);
-          errorDetails = results.find(r => r.errorDetails)?.errorDetails || null;
-          
-        } catch (error) {
-          finalStatus = 'failed';
-          failedTests++;
-          executionTime = 0;
-          actualResult = JSON.stringify([{ browser: 'unknown', status: 'failed', executionTime: 0, errorDetails: error.message }]);
-          errorDetails = error.message;
-        }
-
-        // Update test case result
-        await pool.query(`
-          UPDATE test_cases 
-          SET actual_result = $1, status = $2, execution_time = $3, self_healed = $4, error_details = $5, executed_at = CURRENT_TIMESTAMP
-          WHERE id = $6
-        `, [actualResult, finalStatus, Math.round(executionTime), isFlaky, errorDetails, testCase.id]);
-
-        // Update progress and counts in real-time
-        const executionProgress = 70 + (totalTests / testCases.length) * 25;
-        await pool.query(`
-          UPDATE test_runs 
-          SET passed_tests = $1, failed_tests = $2, flaky_tests = $3
-          WHERE id = $4
-        `, [passedTests, failedTests, flakyTests, this.testRunId]);
-        
-        this.emitProgress(`Executed ${totalTests}/${testCases.length} tests (${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky)`, Math.min(executionProgress, 95), 'executing');
-        
-      } catch (error) {
-        logger.error(`Error executing test case ${testCase.id}: ${error.message}`);
-      }
-    }
-
-    // Calculate final coverage
-    const finalTestCoverage = Math.min((this.discoveredPages.length / this.config.max_pages) * 100, 100);
-
-    await pool.query(`
-      UPDATE test_runs 
-      SET passed_tests = $1, failed_tests = $2, flaky_tests = $3, coverage_percentage = $4
-      WHERE id = $5
-    `, [passedTests, failedTests, flakyTests, finalTestCoverage, this.testRunId]);
-
-    logger.info(`Test execution completed: ${totalTests} total, ${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky`);
-    this.emitProgress(`Test execution completed: ${totalTests} tests executed with ${Math.round(finalTestCoverage)}% coverage`, 95, 'executing');
-  }
-
   groupPagesForFlowTesting() {
     const groups = [];
     const testGenerationDepth = this.config.test_generation_depth || 3;
@@ -974,141 +875,6 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
     }
     
     return groups.length > 0 ? groups : [this.discoveredPages.slice(0, testGenerationDepth)];
-  }
-
-  async executeTestCase(testCase, pageData) {
-    const results = [];
-    
-    for (const browserInfo of this.browsers) {
-      try {
-        const context = await browserInfo.browser.newContext();
-        const page = await context.newPage();
-        
-        const startTime = Date.now();
-        
-        // Execute test steps
-        let status = 'passed';
-        let errorDetails = null;
-        
-        try {
-          await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
-          
-          // Handle popups before executing test steps
-          await this.handlePopupsAndModals(page);
-          
-          for (const step of testCase.steps) {
-            await this.executeTestStep(page, step);
-          }
-          
-        } catch (error) {
-          status = 'failed';
-          errorDetails = error.message;
-          
-          // Attempt self-healing
-          try {
-            // Try handling popups again before self-healing
-            await this.handlePopupsAndModals(page);
-            await this.attemptSelfHealing(page, testCase);
-            status = 'passed';
-            errorDetails = null;
-          } catch (healingError) {
-            // Self-healing failed
-          }
-        }
-        
-        const executionTime = Date.now() - startTime;
-        
-        results.push({
-          browser: browserInfo.type,
-          status,
-          executionTime,
-          errorDetails
-        });
-        
-        await context.close();
-        
-      } catch (error) {
-        results.push({
-          browser: browserInfo.type,
-          status: 'failed',
-          executionTime: 0,
-          errorDetails: error.message
-        });
-      }
-    }
-    
-    return results;
-  }
-
-  async executeTestStep(page, step) {
-    switch (step.action) {
-      case 'click':
-        await page.click(step.selector);
-        break;
-      case 'fill':
-        await page.fill(step.selector, step.value);
-        break;
-      case 'select':
-        await page.selectOption(step.selector, step.value);
-        break;
-      case 'wait':
-        await page.waitForSelector(step.selector);
-        break;
-      case 'assert':
-        const element = await page.$(step.selector);
-        if (!element) {
-          throw new Error(`Element not found: ${step.selector}`);
-        }
-        break;
-      default:
-        logger.warn(`Unknown test step action: ${step.action}`);
-    }
-  }
-
-  async attemptSelfHealing(page, testCase) {
-    // Implement self-healing logic
-    // This could involve finding alternative selectors, waiting for elements, etc.
-    logger.info(`Attempting self-healing for test case: ${testCase.name}`);
-    
-    // Simple self-healing: retry with different selector strategies
-    for (const step of testCase.steps) {
-      if (step.selector) {
-        const alternatives = this.generateAlternativeSelectors(step.selector);
-        
-        for (const altSelector of alternatives) {
-          try {
-            const element = await page.$(altSelector);
-            if (element) {
-              step.selector = altSelector;
-              await this.executeTestStep(page, step);
-              break;
-            }
-          } catch (error) {
-            continue;
-          }
-        }
-      }
-    }
-  }
-
-  generateAlternativeSelectors(originalSelector) {
-    const alternatives = [];
-    
-    // If it's an ID selector, try class and tag alternatives
-    if (originalSelector.startsWith('#')) {
-      const id = originalSelector.substring(1);
-      alternatives.push(`[id="${id}"]`);
-      alternatives.push(`*[id*="${id}"]`);
-    }
-    
-    // If it's a class selector, try other variations
-    if (originalSelector.startsWith('.')) {
-      const className = originalSelector.substring(1);
-      alternatives.push(`[class*="${className}"]`);
-      alternatives.push(`*[class~="${className}"]`);
-    }
-    
-    return alternatives;
   }
 
   async updateRunStatus(status, errorMessage = null) {
