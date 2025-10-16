@@ -8,7 +8,7 @@ router.get('/page/:pageId', async (req, res) => {
   try {
     const { pageId } = req.params;
     
-    console.log(`Attempting to serve screenshot for page: ${pageId}`);
+    console.log(`Attempting to serve screenshot for page ID: ${pageId}`);
     
     // Get screenshot data from database
     const result = await pool.query(`
@@ -18,23 +18,45 @@ router.get('/page/:pageId', async (req, res) => {
     `, [pageId]);
     
     if (result.rows.length === 0) {
-      console.log(`Screenshot not found for page: ${pageId}`);
-      return res.status(404).json({ error: 'Screenshot not found' });
+      // Check if page exists but without screenshot
+      const pageCheck = await pool.query(`
+        SELECT id, url, title, screenshot_data
+        FROM discovered_pages 
+        WHERE id = $1
+      `, [pageId]);
+      
+      if (pageCheck.rows.length === 0) {
+        console.log(`Page not found: ${pageId}`);
+        return res.status(404).json({ error: 'Page not found' });
+      } else {
+        console.log(`Page found but no screenshot data for page: ${pageId}, URL: ${pageCheck.rows[0].url}`);
+        console.log(`Screenshot data exists: ${pageCheck.rows[0].screenshot_data ? 'YES' : 'NO'}`);
+        return res.status(404).json({ 
+          error: 'Screenshot not found',
+          pageExists: true,
+          url: pageCheck.rows[0].url
+        });
+      }
     }
     
     const page = result.rows[0];
     const { screenshot_data, image_size, image_format, url, title } = page;
+    
+    console.log(`Found screenshot for page ${pageId}: ${image_size} bytes, format: ${image_format}`);
     
     // Validate image format for security
     const allowedFormats = ['png', 'jpg', 'jpeg'];
     const format = (image_format || 'png').toLowerCase();
     
     if (!allowedFormats.includes(format)) {
+      console.log(`Invalid image format: ${format}`);
       return res.status(400).json({ error: 'Invalid image format' });
     }
     
     // Determine MIME type
     const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+    
+    console.log(`Serving screenshot for page ${pageId}: ${url}`);
     
     // Return as JSON with base64 data URL and metadata
     res.json({

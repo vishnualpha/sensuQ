@@ -195,15 +195,23 @@ class PlaywrightCrawler {
       let screenshotPath = null; // Keep for backward compatibility
       
       try {
+        logger.info(`Taking screenshot for page: ${url}`);
         const screenshotBuffer = await page.screenshot({ 
           fullPage: true, 
           type: 'png',
-          quality: 80 // Optimize file size
+          quality: 80, // Optimize file size
+          timeout: 10000 // 10 second timeout
         });
+        
+        if (!screenshotBuffer || screenshotBuffer.length === 0) {
+          throw new Error('Screenshot buffer is empty');
+        }
         
         screenshotData = screenshotBuffer.toString('base64');
         imageSize = screenshotBuffer.length;
         imageFormat = 'png';
+        
+        logger.info(`Screenshot captured: ${imageSize} bytes, base64 length: ${screenshotData.length}`);
         
         // Also save to file system as backup (optional)
         const screenshotDir = path.join(__dirname, '../screenshots');
@@ -215,12 +223,16 @@ class PlaywrightCrawler {
         screenshotPath = path.join(screenshotDir, screenshotFilename);
         await fs.promises.writeFile(screenshotPath, screenshotBuffer);
         
-        logger.info(`Screenshot saved to database and file: ${screenshotPath}`);
+        logger.info(`Screenshot saved to file: ${screenshotPath}`);
       } catch (screenshotError) {
-        logger.warn(`Failed to take screenshot: ${screenshotError.message}`);
+        logger.error(`Failed to take screenshot for ${url}: ${screenshotError.message}`);
+        logger.error(`Screenshot error stack: ${screenshotError.stack}`);
+        // Continue without screenshot - don't fail the entire crawl
       }
 
       // Save discovered page
+      logger.info(`Saving page to database: ${url}, screenshot data length: ${screenshotData ? screenshotData.length : 0}`);
+      
       const pageResult = await pool.query(`
         INSERT INTO discovered_pages (test_run_id, url, title, elements_count, screenshot_path, 
                                     screenshot_data, image_size, image_format, crawl_depth)
@@ -229,6 +241,8 @@ class PlaywrightCrawler {
       `, [this.testRunId, url, title, elementsCount, screenshotPath, screenshotData, imageSize, imageFormat, depth]);
 
       const pageId = pageResult.rows[0].id;
+      logger.info(`Page saved with ID: ${pageId}, screenshot saved: ${screenshotData ? 'YES' : 'NO'}`);
+      
       const pageData = { id: pageId, url, title, elementsCount, depth };
       this.discoveredPages.push(pageData);
 
@@ -314,6 +328,7 @@ class PlaywrightCrawler {
     
     while (attempt < maxRetries) {
       try {
+        logger.info(`Navigating to page (attempt ${attempt + 1}): ${url}`);
         await page.goto(url, { 
           waitUntil: 'domcontentloaded', // Less strict than networkidle
           timeout: 15000 // Reduced timeout
@@ -321,6 +336,7 @@ class PlaywrightCrawler {
         
         // Wait for basic page elements
         await page.waitForTimeout(1000);
+        logger.info(`Successfully navigated to: ${url}`);
         return;
         
       } catch (error) {
@@ -328,6 +344,7 @@ class PlaywrightCrawler {
         logger.warn(`Navigation attempt ${attempt} failed for ${url}: ${error.message}`);
         
         if (attempt >= maxRetries) {
+          logger.error(`All navigation attempts failed for ${url}`);
           throw error;
         }
         
