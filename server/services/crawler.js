@@ -176,17 +176,19 @@ class PlaywrightCrawler {
       // Always handle popups first - critical for continuation
       await this.handlePopupsAndModals(page);
       
-      // Perform intelligent interactions if LLM is available
+      // Perform intelligent form filling and interactions
       if (this.testGenerator && this.config.api_key) {
         await this.performIntelligentInteractions(page, url);
       } else {
-        // Even without LLM, perform basic popup dismissal and continuation
-        await this.performBasicInteractions(page, url);
+        // Even without LLM, perform basic form filling and interactions
+        await this.performBasicFormInteractions(page, url);
       }
       
       const title = await page.title();
-      const elements = await page.$$('*');
-      const elementsCount = elements.length;
+      
+      // Get detailed page elements for better test generation
+      const pageElements = await this.getDetailedPageElements(page);
+      const elementsCount = pageElements.totalCount;
 
       // Take screenshot and save as base64 in database
       let screenshotData = null;
@@ -244,6 +246,7 @@ class PlaywrightCrawler {
       logger.info(`Page saved with ID: ${pageId}, screenshot saved: ${screenshotData ? 'YES' : 'NO'}`);
       
       const pageData = { id: pageId, url, title, elementsCount, depth };
+      pageData.elements = pageElements; // Add detailed elements for test generation
       this.discoveredPages.push(pageData);
 
       // Generate test cases for this individual page immediately
@@ -369,6 +372,202 @@ class PlaywrightCrawler {
       
     } catch (error) {
       logger.warn(`Basic interactions failed for ${url}: ${error.message}`);
+    }
+  }
+
+  async performBasicFormInteractions(page, url) {
+    try {
+      logger.info(`Performing basic form interactions for ${url}`);
+      
+      // Handle popups and modals first
+      await this.handlePopupsAndModals(page);
+      
+      // Fill forms with basic test data
+      await this.fillFormsWithBasicData(page);
+      
+      // Look for continuation buttons
+      await this.clickContinuationButtons(page);
+      
+      // Wait for any dynamic content to load
+      await page.waitForTimeout(2000);
+      
+    } catch (error) {
+      logger.warn(`Basic form interactions failed for ${url}: ${error.message}`);
+    }
+  }
+
+  async getDetailedPageElements(page) {
+    try {
+      const elements = await page.evaluate(() => {
+        const forms = Array.from(document.forms).map(form => ({
+          action: form.action,
+          method: form.method,
+          inputs: Array.from(form.elements).map(el => ({
+            type: el.type,
+            name: el.name,
+            placeholder: el.placeholder,
+            required: el.required,
+            id: el.id,
+            className: el.className
+          }))
+        }));
+        
+        const buttons = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"]')).map(btn => ({
+          text: btn.textContent || btn.value,
+          type: btn.type,
+          className: btn.className,
+          id: btn.id
+        }));
+        
+        const links = Array.from(document.querySelectorAll('a[href]')).map(link => ({
+          text: link.textContent?.trim(),
+          href: link.href,
+          className: link.className
+        }));
+        
+        const selects = Array.from(document.querySelectorAll('select')).map(select => ({
+          name: select.name,
+          id: select.id,
+          options: Array.from(select.options).map(opt => ({
+            text: opt.text,
+            value: opt.value
+          }))
+        }));
+        
+        const inputs = Array.from(document.querySelectorAll('input')).map(input => ({
+          type: input.type,
+          name: input.name,
+          placeholder: input.placeholder,
+          id: input.id,
+          required: input.required
+        }));
+        
+        return {
+          totalCount: document.querySelectorAll('*').length,
+          forms,
+          buttons,
+          links,
+          selects,
+          inputs,
+          hasSearch: document.querySelectorAll('input[type="search"], input[placeholder*="search" i], input[name*="search" i]').length > 0,
+          hasLogin: document.querySelectorAll('input[type="password"], input[name*="password" i], input[name*="login" i]').length > 0
+        };
+      });
+      
+      return elements;
+    } catch (error) {
+      logger.error(`Error getting detailed page elements: ${error.message}`);
+      return { totalCount: 0, forms: [], buttons: [], links: [], selects: [], inputs: [] };
+    }
+  }
+
+  async fillFormsWithBasicData(page) {
+    try {
+      logger.info('Filling forms with basic test data...');
+      
+      // Get business context for realistic data
+      const businessContext = this.config.business_context || '';
+      const isEcommerce = businessContext.toLowerCase().includes('ecommerce') || businessContext.toLowerCase().includes('shop');
+      const isTravel = businessContext.toLowerCase().includes('travel') || businessContext.toLowerCase().includes('flight') || businessContext.toLowerCase().includes('hotel');
+      const isCRM = businessContext.toLowerCase().includes('crm') || businessContext.toLowerCase().includes('customer');
+      
+      // Fill common input types with realistic data
+      const inputSelectors = [
+        'input[type="text"]',
+        'input[type="email"]',
+        'input[type="search"]',
+        'input[name*="name"]',
+        'input[name*="email"]',
+        'input[name*="search"]',
+        'input[placeholder*="search" i]',
+        'input[placeholder*="name" i]',
+        'input[placeholder*="email" i]'
+      ];
+      
+      for (const selector of inputSelectors) {
+        try {
+          const elements = await page.$$(selector);
+          for (const element of elements) {
+            const isVisible = await element.isVisible();
+            const isEnabled = await element.isEnabled();
+            
+            if (isVisible && isEnabled) {
+              const name = await element.getAttribute('name') || '';
+              const placeholder = await element.getAttribute('placeholder') || '';
+              const type = await element.getAttribute('type') || 'text';
+              
+              let testValue = '';
+              
+              // Generate realistic test data based on field type and business context
+              if (type === 'email' || name.includes('email') || placeholder.toLowerCase().includes('email')) {
+                testValue = 'test.user@example.com';
+              } else if (name.includes('search') || placeholder.toLowerCase().includes('search')) {
+                if (isEcommerce) {
+                  testValue = 'laptop';
+                } else if (isTravel) {
+                  testValue = 'New York';
+                } else if (isCRM) {
+                  testValue = 'John Smith';
+                } else {
+                  testValue = 'test search';
+                }
+              } else if (name.includes('name') || placeholder.toLowerCase().includes('name')) {
+                testValue = 'John Doe';
+              } else if (name.includes('city') || placeholder.toLowerCase().includes('city')) {
+                testValue = 'New York';
+              } else if (name.includes('phone') || placeholder.toLowerCase().includes('phone')) {
+                testValue = '+1-555-123-4567';
+              } else if (name.includes('company') || placeholder.toLowerCase().includes('company')) {
+                testValue = 'Test Company Inc';
+              } else {
+                // Default test value based on business context
+                if (isEcommerce) {
+                  testValue = 'electronics';
+                } else if (isTravel) {
+                  testValue = 'Boston';
+                } else if (isCRM) {
+                  testValue = 'Test Customer';
+                } else {
+                  testValue = 'test data';
+                }
+              }
+              
+              await element.fill(testValue);
+              logger.info(`Filled ${selector} with: ${testValue}`);
+              await page.waitForTimeout(500);
+              
+              // Only fill one field per selector to avoid overwhelming the form
+              break;
+            }
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+      
+      // Fill select dropdowns with first available option
+      try {
+        const selects = await page.$$('select');
+        for (const select of selects) {
+          const isVisible = await select.isVisible();
+          const isEnabled = await select.isEnabled();
+          
+          if (isVisible && isEnabled) {
+            const options = await select.$$('option');
+            if (options.length > 1) {
+              // Select the second option (first is usually empty/default)
+              await select.selectOption({ index: 1 });
+              logger.info('Selected dropdown option');
+              await page.waitForTimeout(500);
+            }
+          }
+        }
+      } catch (error) {
+        logger.warn(`Error filling select dropdowns: ${error.message}`);
+      }
+      
+    } catch (error) {
+      logger.warn(`Error filling forms with basic data: ${error.message}`);
     }
   }
 
@@ -599,21 +798,26 @@ class PlaywrightCrawler {
       // Get page context for LLM
       const pageContext = await this.getPageContext(page);
       
-      // Ask LLM for interaction suggestions
+      // Ask LLM for intelligent interaction suggestions based on business context
       const interactions = await this.getInteractionSuggestions(pageContext, url);
       
       // Execute suggested interactions
       for (const interaction of interactions) {
         try {
           await this.executeInteraction(page, interaction);
-          await page.waitForTimeout(1000); // Wait between interactions
+          await page.waitForTimeout(1500); // Wait longer between interactions
         } catch (error) {
           logger.warn(`Failed to execute interaction: ${error.message}`);
         }
       }
       
+      // After intelligent interactions, also try basic form filling as fallback
+      await this.fillFormsWithBasicData(page);
+      
     } catch (error) {
       logger.warn(`Intelligent interactions failed for ${url}: ${error.message}`);
+      // Fallback to basic form interactions
+      await this.performBasicFormInteractions(page, url);
     }
   }
 
@@ -667,47 +871,66 @@ class PlaywrightCrawler {
     
     try {
       const businessContext = this.config.business_context ? 
-        `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}\n\nUse this context to suggest interactions that are relevant to the application's purpose and user workflows.` : '';
+        `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}` : '';
       
       const prompt = `
-Analyze this web page and suggest intelligent interactions to discover more content:
+You are an expert web crawler specializing in discovering hidden content through intelligent form interactions. 
+Analyze this web page and suggest realistic interactions that will reveal more application functionality:
 
 URL: ${url}
-Title: ${pageContext.title}
+Title: ${pageContext.title}${businessContext}
 
-Page Elements:
+CURRENT PAGE ELEMENTS:
 - Forms: ${JSON.stringify(pageContext.forms, null, 2)}
 - Buttons: ${JSON.stringify(pageContext.buttons, null, 2)}
 - Dropdowns: ${JSON.stringify(pageContext.selects, null, 2)}
-- Has Modals: ${pageContext.hasModals}${businessContext}
+- Has Modals: ${pageContext.hasModals}
+- Has Search: ${pageContext.hasSearch}
+- Has Login: ${pageContext.hasLogin}
 
 Page Content Preview: ${pageContext.bodyText}
 
-Suggest 2-3 intelligent interactions that would help discover more content or navigate deeper into the application. Consider the business context and focus on:
-1. Filling forms with realistic test data
-2. Clicking navigation buttons
-3. Selecting dropdown options
-4. Dismissing modals/popups
+CRITICAL INSTRUCTIONS:
+1. Use the business context to understand what type of application this is
+2. Suggest interactions that real users would perform to access core functionality
+3. Focus on form submissions that reveal new pages/content (search forms, filters, etc.)
+4. Use realistic test data that matches the business domain
+5. Prioritize interactions that lead to business-critical workflows
 
-Generate interactions that align with typical user behavior for this type of application.
+INTERACTION PRIORITIES:
+- Search forms (product search, flight search, customer search, etc.)
+- Filter and category selections
+- Login forms (if present)
+- Navigation forms that reveal content
+- Multi-step wizards and processes
+
+REALISTIC TEST DATA EXAMPLES:
+- E-commerce: "laptop", "iPhone", "electronics"
+- Travel: "New York", "Los Angeles", "2024-12-25"
+- CRM: "John Smith", "test@company.com", "555-1234"
+- Real Estate: "San Francisco", "$500000", "2 bedroom"
+- Job Portal: "Software Engineer", "San Francisco", "Full-time"
 
 Return as JSON array:
 [
   {
-    "type": "fill|click|select|dismiss",
+    "type": "fill|click|select|submit|dismiss",
     "selector": "CSS selector",
-    "value": "value to enter (for fill/select)",
-    "description": "What this interaction does"
+    "value": "realistic business-relevant test data",
+    "description": "What this interaction does and why it's valuable for discovery",
+    "expectedOutcome": "What new content or functionality this should reveal"
   }
 ]
 
-Only suggest safe, non-destructive interactions. Avoid submit buttons unless necessary.
+Suggest 3-5 intelligent interactions that will maximize content discovery.
+Focus on interactions that reveal hidden functionality and business-critical workflows.
+Use realistic test data that makes sense for the business context.
 `;
 
       const response = await this.testGenerator.callLLM(prompt);
       const suggestions = JSON.parse(response);
       
-      return Array.isArray(suggestions) ? suggestions.slice(0, 3) : [];
+      return Array.isArray(suggestions) ? suggestions.slice(0, 5) : [];
       
     } catch (error) {
       logger.warn(`Failed to get interaction suggestions: ${error.message}`);
@@ -730,6 +953,33 @@ Only suggest safe, non-destructive interactions. Avoid submit buttons unless nec
       case 'select':
         await page.selectOption(interaction.selector, interaction.value);
         logger.info(`Selected ${interaction.value} in: ${interaction.selector}`);
+        break;
+        
+      case 'submit':
+        // Fill the form first, then submit
+        if (interaction.value) {
+          const formInputs = await page.$$(`${interaction.selector} input, ${interaction.selector} select`);
+          for (const input of formInputs) {
+            const type = await input.getAttribute('type');
+            if (type !== 'submit' && type !== 'button') {
+              try {
+                await input.fill(interaction.value);
+                break; // Fill only the first suitable input
+              } catch (e) {
+                continue;
+              }
+            }
+          }
+        }
+        
+        // Submit the form
+        const submitButton = await page.$(`${interaction.selector} input[type="submit"], ${interaction.selector} button[type="submit"], ${interaction.selector} button`);
+        if (submitButton) {
+          await submitButton.click();
+          logger.info(`Submitted form: ${interaction.selector}`);
+          // Wait longer for form submission results
+          await page.waitForTimeout(3000);
+        }
         break;
         
       case 'dismiss':

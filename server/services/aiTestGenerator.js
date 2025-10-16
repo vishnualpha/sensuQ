@@ -40,20 +40,35 @@ class AITestGenerator {
 
   buildTestGenerationPrompt(pageData) {
     const businessContext = this.config.business_context ? 
-      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}\n\nUse this context to understand the application's purpose and generate more relevant test cases.` : '';
+      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}` : '';
     
     return `
-Generate comprehensive test cases for a web page with the following details:
+You are an expert QA engineer specializing in functional testing. Generate comprehensive, realistic test cases for this web page:
+
 - URL: ${pageData.url}
 - Title: ${pageData.title}
-- Elements Count: ${pageData.elementsCount}${businessContext}
+- Elements Count: ${pageData.elementsCount}
+- Page Elements: ${JSON.stringify(pageData.elements || {}, null, 2)}${businessContext}
 
-Please generate test cases that cover:
-1. Functional testing (form submissions, navigation, interactions)
-2. Accessibility testing (ARIA labels, keyboard navigation, color contrast)
-3. Performance testing (page load times, resource loading)
+CRITICAL INSTRUCTIONS:
+1. Use the business context above to understand the application's purpose and generate REALISTIC test scenarios
+2. Focus heavily on FUNCTIONAL testing that matches real user behavior for this type of application
+3. Generate test cases that exercise the core business functionality described in the context
+4. Create detailed, actionable test steps with realistic test data
+5. Consider edge cases and error scenarios relevant to the business domain
 
-Consider the business context provided above when generating test cases. Focus on testing scenarios that are relevant to the application's purpose and user workflows.
+FUNCTIONAL TEST PRIORITIES (70% of tests should be functional):
+- Form submissions with realistic business data
+- Navigation through business workflows
+- User interactions that drive business value
+- Data entry and validation scenarios
+- Search and filtering functionality
+- User account operations
+- Transaction and process flows
+
+ADDITIONAL TEST TYPES (30% of tests):
+- Accessibility testing (ARIA labels, keyboard navigation)
+- Performance testing (page load times, critical path performance)
 
 Return the test cases in the following JSON format:
 {
@@ -61,22 +76,24 @@ Return the test cases in the following JSON format:
     {
       "type": "functional|accessibility|performance",
       "name": "Test case name",
-      "description": "Detailed description",
+      "description": "Detailed description explaining business value and user scenario",
       "steps": [
         {
           "action": "click|fill|select|wait|assert",
           "selector": "CSS selector",
-          "value": "value if applicable",
-          "description": "Step description"
+          "value": "realistic test data based on business context",
+          "description": "Step description with expected outcome"
         }
       ],
-      "expectedResult": "Expected outcome",
-      "priority": "high|medium|low"
+      "expectedResult": "Detailed expected outcome with business impact",
+      "priority": "high|medium|low",
+      "businessValue": "Why this test is important for the business"
     }
   ]
 }
 
-Generate at least 5 test cases covering different aspects of the page.
+Generate 8-12 test cases with at least 70% being functional tests that reflect real user scenarios for this business domain.
+Use realistic test data that makes sense for the business context (e.g., real product names, realistic prices, valid email formats, etc.).
 `;
   }
 
@@ -85,50 +102,76 @@ Generate at least 5 test cases covering different aspects of the page.
       url: page.url,
       title: page.title,
       elementsCount: page.elements_count,
-      depth: page.crawl_depth
+      depth: page.crawl_depth,
+      elements: page.elements || {}
     }));
 
     const businessContext = this.config.business_context ? 
-      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}\n\nUse this context to understand the application's purpose and generate more relevant flow-based test cases that align with real user journeys.` : '';
+      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}` : '';
+    
     return `
-Generate comprehensive test cases for a user flow across multiple related web pages:
+You are an expert QA engineer specializing in end-to-end user journey testing. Generate comprehensive, business-focused test cases for user flows across these related pages:
 
 Pages in this flow:
 ${JSON.stringify(pageDetails, null, 2)}${businessContext}
 
-Please generate test cases that cover:
-1. **Flow-based testing**: Tests that span multiple pages in logical user journeys
-2. **Functional testing**: Form submissions, navigation, interactions within each page
-3. **Accessibility testing**: ARIA labels, keyboard navigation, color contrast
-4. **Performance testing**: Page load times, resource loading
+CRITICAL INSTRUCTIONS FOR FLOW-BASED TESTING:
+1. Use the business context to create REALISTIC user journeys that customers would actually follow
+2. Design complete end-to-end workflows that span multiple pages
+3. Include realistic test data that matches the business domain
+4. Focus on business-critical user paths and conversion flows
+5. Test both happy path and error scenarios
+6. Consider different user personas and their typical workflows
 
-Focus on creating realistic user flows that connect these pages together. Consider the business context to generate test cases that reflect actual user behavior and business-critical workflows.
+FLOW TEST PRIORITIES:
+- Complete business processes (e.g., purchase flow, booking process, application submission)
+- User onboarding and account management flows
+- Search → Browse → Action workflows
+- Multi-step forms and wizards
+- Cross-page data persistence
+- Authentication and authorization flows
+- Error handling and recovery paths
+
+EXAMPLE REALISTIC FLOWS BASED ON BUSINESS CONTEXT:
+- E-commerce: Product search → Product details → Add to cart → Checkout → Payment → Confirmation
+- Travel: Search flights → Select flight → Passenger details → Payment → Booking confirmation
+- CRM: Login → Dashboard → Add customer → Fill details → Save → View customer list
+- Banking: Login → Account overview → Transfer money → Confirm transfer → Transaction history
+
+REALISTIC TEST DATA EXAMPLES:
+- Use actual product names, realistic prices, valid email formats
+- Include edge cases like special characters, long names, international formats
+- Test with different user types (new vs returning, different roles)
 
 Return the test cases in the following JSON format:
 {
   "testCases": [
     {
       "type": "functional|accessibility|performance|flow",
-      "name": "Test case name",
-      "description": "Detailed description of what this test validates",
+      "name": "Business-focused test case name",
+      "description": "Detailed description of the complete user journey and business scenario",
       "steps": [
         {
           "action": "navigate|click|fill|select|wait|assert|verify",
           "selector": "CSS selector",
-          "value": "value if applicable",
-          "description": "Step description",
-          "expectedOutcome": "What should happen after this step"
+          "value": "realistic business data",
+          "description": "Step description with business context",
+          "expectedOutcome": "What should happen after this step",
+          "pageUrl": "which page this step occurs on"
         }
       ],
-      "expectedResult": "Overall expected outcome of the entire test",
+      "expectedResult": "Complete business outcome and user experience result",
       "priority": "high|medium|low",
-      "flowType": "single-page|multi-page"
+      "flowType": "single-page|multi-page",
+      "businessValue": "Why this flow is critical for business success",
+      "userPersona": "Type of user who would follow this flow"
     }
   ]
 }
 
-Generate at least 5-8 test cases with a mix of single-page and multi-page flows.
-Make sure to include detailed expected results for each test case.
+Generate 6-10 comprehensive flow test cases with at least 80% being multi-page flows.
+Focus on complete business processes that span multiple pages and deliver real business value.
+Include realistic test data and consider different user scenarios and edge cases.
 `;
   }
 
