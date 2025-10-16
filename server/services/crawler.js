@@ -198,6 +198,11 @@ class PlaywrightCrawler {
       
       try {
         logger.info(`Taking screenshot for page: ${url}`);
+        
+        // First check if page is ready for screenshot
+        await page.waitForLoadState('domcontentloaded');
+        await page.waitForTimeout(1000); // Give page time to render
+        
         const screenshotBuffer = await page.screenshot({ 
           fullPage: true, 
           type: 'png',
@@ -205,35 +210,66 @@ class PlaywrightCrawler {
           timeout: 10000 // 10 second timeout
         });
         
+        logger.info(`Screenshot buffer created: ${screenshotBuffer ? 'YES' : 'NO'}, length: ${screenshotBuffer ? screenshotBuffer.length : 0}`);
+        
         if (!screenshotBuffer || screenshotBuffer.length === 0) {
-          throw new Error('Screenshot buffer is empty');
+          logger.error('Screenshot buffer is empty or null');
+          screenshotData = null;
+          imageSize = 0;
+        } else {
+          screenshotData = screenshotBuffer.toString('base64');
+          imageSize = screenshotBuffer.length;
+          imageFormat = 'png';
+          
+          logger.info(`Screenshot converted to base64: length=${screenshotData.length}, size=${imageSize} bytes`);
+          
+          // Validate base64 data
+          if (!screenshotData || screenshotData.length === 0) {
+            logger.error('Base64 conversion failed - empty string');
+            screenshotData = null;
+            imageSize = 0;
+          }
         }
-        
-        screenshotData = screenshotBuffer.toString('base64');
-        imageSize = screenshotBuffer.length;
-        imageFormat = 'png';
-        
-        logger.info(`Screenshot captured: ${imageSize} bytes, base64 length: ${screenshotData.length}`);
         
         // Also save to file system as backup (optional)
-        const screenshotDir = path.join(__dirname, '../screenshots');
-        if (!fs.existsSync(screenshotDir)) {
-          await fs.promises.mkdir(screenshotDir, { recursive: true });
+        if (screenshotBuffer && screenshotBuffer.length > 0) {
+          try {
+            const screenshotDir = path.join(__dirname, '../screenshots');
+            if (!fs.existsSync(screenshotDir)) {
+              await fs.promises.mkdir(screenshotDir, { recursive: true });
+            }
+            
+            const screenshotFilename = `${this.testRunId}_${Date.now()}.png`;
+            screenshotPath = path.join(screenshotDir, screenshotFilename);
+            await fs.promises.writeFile(screenshotPath, screenshotBuffer);
+            
+            logger.info(`Screenshot saved to file: ${screenshotPath}`);
+          } catch (fileError) {
+            logger.warn(`Failed to save screenshot to file: ${fileError.message}`);
+            // Don't fail the entire process if file save fails
+          }
         }
         
-        const screenshotFilename = `${this.testRunId}_${Date.now()}.png`;
-        screenshotPath = path.join(screenshotDir, screenshotFilename);
-        await fs.promises.writeFile(screenshotPath, screenshotBuffer);
-        
-        logger.info(`Screenshot saved to file: ${screenshotPath}`);
       } catch (screenshotError) {
         logger.error(`Failed to take screenshot for ${url}: ${screenshotError.message}`);
         logger.error(`Screenshot error stack: ${screenshotError.stack}`);
-        // Continue without screenshot - don't fail the entire crawl
+        
+        // Reset screenshot data on error
+        screenshotData = null;
+        imageSize = 0;
+        imageFormat = 'png';
+        screenshotPath = null;
       }
 
       // Save discovered page
-      logger.info(`Saving page to database: ${url}, screenshot data length: ${screenshotData ? screenshotData.length : 0}`);
+      logger.info(`Preparing to save page to database:`);
+      logger.info(`  URL: ${url}`);
+      logger.info(`  Title: ${title}`);
+      logger.info(`  Elements count: ${elementsCount}`);
+      logger.info(`  Screenshot data: ${screenshotData ? 'YES' : 'NO'}`);
+      logger.info(`  Screenshot data length: ${screenshotData ? screenshotData.length : 0}`);
+      logger.info(`  Image size: ${imageSize}`);
+      logger.info(`  Image format: ${imageFormat}`);
       
       const pageResult = await pool.query(`
         INSERT INTO discovered_pages (test_run_id, url, title, elements_count, screenshot_path, 
@@ -243,7 +279,29 @@ class PlaywrightCrawler {
       `, [this.testRunId, url, title, elementsCount, screenshotPath, screenshotData, imageSize, imageFormat, depth]);
 
       const pageId = pageResult.rows[0].id;
-      logger.info(`Page saved with ID: ${pageId}, screenshot saved: ${screenshotData ? 'YES' : 'NO'}`);
+      logger.info(`✅ Page saved to database with ID: ${pageId}`);
+      logger.info(`✅ Screenshot data saved: ${screenshotData ? 'YES' : 'NO'}`);
+      
+      // Verify the data was actually saved by querying it back
+      try {
+        const verifyResult = await pool.query(`
+          SELECT id, url, screenshot_data IS NOT NULL as has_screenshot, 
+                 LENGTH(screenshot_data) as screenshot_length, image_size, image_format
+          FROM discovered_pages WHERE id = $1
+        `, [pageId]);
+        
+        if (verifyResult.rows.length > 0) {
+          const saved = verifyResult.rows[0];
+          logger.info(`✅ Database verification:`);
+          logger.info(`  Page ID: ${saved.id}`);
+          logger.info(`  Has screenshot: ${saved.has_screenshot}`);
+          logger.info(`  Screenshot length in DB: ${saved.screenshot_length || 0}`);
+          logger.info(`  Image size in DB: ${saved.image_size || 0}`);
+          logger.info(`  Image format in DB: ${saved.image_format || 'none'}`);
+        }
+      } catch (verifyError) {
+        logger.warn(`Could not verify saved data: ${verifyError.message}`);
+      }
       
       const pageData = { id: pageId, url, title, elementsCount, depth };
       pageData.elements = pageElements; // Add detailed elements for test generation

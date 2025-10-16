@@ -8,33 +8,49 @@ router.get('/page/:pageId', async (req, res) => {
   try {
     const { pageId } = req.params;
     
-    console.log(`Attempting to serve screenshot for page ID: ${pageId}`);
+    console.log(`🔍 Attempting to serve screenshot for page ID: ${pageId}`);
     
     // Get screenshot data from database
     const result = await pool.query(`
       SELECT screenshot_data, image_size, image_format, url, title
       FROM discovered_pages 
-      WHERE id = $1 AND screenshot_data IS NOT NULL
+      WHERE id = $1 AND screenshot_data IS NOT NULL AND screenshot_data != ''
     `, [pageId]);
+    
+    console.log(`📊 Database query result: ${result.rows.length} rows found`);
     
     if (result.rows.length === 0) {
       // Check if page exists but without screenshot
       const pageCheck = await pool.query(`
-        SELECT id, url, title, screenshot_data
+        SELECT id, url, title, screenshot_data IS NOT NULL as has_screenshot_data,
+               LENGTH(screenshot_data) as screenshot_length, image_size, image_format
         FROM discovered_pages 
         WHERE id = $1
       `, [pageId]);
       
       if (pageCheck.rows.length === 0) {
-        console.log(`Page not found: ${pageId}`);
+        console.log(`❌ Page not found: ${pageId}`);
         return res.status(404).json({ error: 'Page not found' });
       } else {
-        console.log(`Page found but no screenshot data for page: ${pageId}, URL: ${pageCheck.rows[0].url}`);
-        console.log(`Screenshot data exists: ${pageCheck.rows[0].screenshot_data ? 'YES' : 'NO'}`);
+        const page = pageCheck.rows[0];
+        console.log(`📄 Page found but no valid screenshot data:`);
+        console.log(`  Page ID: ${pageId}`);
+        console.log(`  URL: ${page.url}`);
+        console.log(`  Has screenshot data: ${page.has_screenshot_data}`);
+        console.log(`  Screenshot length: ${page.screenshot_length || 0}`);
+        console.log(`  Image size: ${page.image_size || 0}`);
+        console.log(`  Image format: ${page.image_format || 'none'}`);
+        
         return res.status(404).json({ 
           error: 'Screenshot not found',
           pageExists: true,
-          url: pageCheck.rows[0].url
+          url: page.url,
+          debug: {
+            hasScreenshotData: page.has_screenshot_data,
+            screenshotLength: page.screenshot_length,
+            imageSize: page.image_size,
+            imageFormat: page.image_format
+          }
         });
       }
     }
@@ -42,21 +58,37 @@ router.get('/page/:pageId', async (req, res) => {
     const page = result.rows[0];
     const { screenshot_data, image_size, image_format, url, title } = page;
     
-    console.log(`Found screenshot for page ${pageId}: ${image_size} bytes, format: ${image_format}`);
+    console.log(`✅ Found screenshot data for page ${pageId}:`);
+    console.log(`  Image size: ${image_size} bytes`);
+    console.log(`  Image format: ${image_format}`);
+    console.log(`  Base64 data length: ${screenshot_data ? screenshot_data.length : 0}`);
+    console.log(`  URL: ${url}`);
+    
+    // Additional validation of screenshot data
+    if (!screenshot_data || screenshot_data.length === 0) {
+      console.log(`❌ Screenshot data is empty for page ${pageId}`);
+      return res.status(404).json({ 
+        error: 'Screenshot data is empty',
+        pageId: pageId,
+        url: url
+      });
+    }
     
     // Validate image format for security
     const allowedFormats = ['png', 'jpg', 'jpeg'];
     const format = (image_format || 'png').toLowerCase();
     
     if (!allowedFormats.includes(format)) {
-      console.log(`Invalid image format: ${format}`);
+      console.log(`❌ Invalid image format: ${format}`);
       return res.status(400).json({ error: 'Invalid image format' });
     }
     
     // Determine MIME type
     const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
     
-    console.log(`Serving screenshot for page ${pageId}: ${url}`);
+    console.log(`🚀 Serving screenshot for page ${pageId}:`);
+    console.log(`  MIME type: ${mimeType}`);
+    console.log(`  Data URL length: ${screenshot_data.length + mimeType.length + 13}`); // +13 for "data:;base64,"
     
     // Return as JSON with base64 data URL and metadata
     res.json({
@@ -69,7 +101,8 @@ router.get('/page/:pageId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error serving screenshot:', error);
+    console.error('❌ Error serving screenshot:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({ error: 'Failed to serve screenshot' });
   }
 });

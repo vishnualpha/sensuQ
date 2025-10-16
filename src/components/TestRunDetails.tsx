@@ -26,43 +26,97 @@ function ScreenshotImage({ pageId, filename, alt }: { pageId?: number; filename?
 
   useEffect(() => {
     const loadScreenshot = async () => {
+      // Reset state at the beginning
+      setLoading(true);
+      setError(false);
+      setImageSrc(null);
+      
+      // Validate that we have either pageId or filename
+      if (!pageId && !filename) {
+        console.error('ScreenshotImage: No pageId or filename provided');
+        setError(true);
+        setLoading(false);
+        return;
+      }
+      
       try {
+        console.log(`🔍 Loading screenshot: pageId=${pageId}, filename=${filename}`);
+        
         // Try database first (by pageId), then fallback to filename
         const url = pageId 
           ? `http://localhost:3001/api/screenshots/page/${pageId}`
           : `http://localhost:3001/api/screenshots/${filename}`;
-          
+        
+        console.log(`📡 Fetching screenshot from: ${url}`);
+        
         const response = await fetch(url);
+        
+        console.log(`📊 Response status: ${response.status} ${response.statusText}`);
+        
         if (response.ok) {
           const data = await response.json();
-          setImageSrc(data.dataUrl);
+          
+          console.log(`✅ Screenshot data received:`, {
+            hasDataUrl: !!data.dataUrl,
+            dataUrlLength: data.dataUrl ? data.dataUrl.length : 0,
+            pageId: data.pageId,
+            url: data.url,
+            size: data.size,
+            format: data.format
+          });
+          
+          // Validate that dataUrl exists and is not empty
+          if (data.dataUrl && data.dataUrl.length > 0) {
+            setImageSrc(data.dataUrl);
+          } else {
+            console.error('❌ No dataUrl in response or dataUrl is empty');
+            setError(true);
+          }
         } else {
+          // Log response body for debugging
+          const errorText = await response.text();
+          console.error(`❌ Screenshot fetch failed:`, {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText
+          });
+          
+          // Try to parse error response
+          try {
+            const errorData = JSON.parse(errorText);
+            console.error('Error details:', errorData);
+          } catch (parseError) {
+            console.error('Could not parse error response');
+          }
+          
           setError(true);
         }
       } catch (err) {
-        console.error('Failed to load screenshot:', err);
+        console.error('❌ Failed to load screenshot:', err);
+        console.error('Error details:', {
+          message: err.message,
+          stack: err.stack
+        });
         setError(true);
       } finally {
         setLoading(false);
       }
     };
 
-    if (pageId || filename) {
-      loadScreenshot();
-    }
+    loadScreenshot();
   }, [pageId, filename]);
 
   if (loading) {
     return (
       <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400" title="Loading screenshot..."></div>
       </div>
     );
   }
 
   if (error || !imageSrc) {
     return (
-      <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm">
+      <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm" title="Screenshot not available">
         <Globe className="h-8 w-8 text-gray-400" />
       </div>
     );
@@ -73,6 +127,11 @@ function ScreenshotImage({ pageId, filename, alt }: { pageId?: number; filename?
       src={imageSrc}
       alt={alt}
       className="w-32 h-24 object-cover rounded border shadow-sm"
+      onLoad={() => console.log(`✅ Screenshot image loaded successfully`)}
+      onError={(e) => {
+        console.error('❌ Screenshot image failed to load:', e);
+        setError(true);
+      }}
     />
   );
 }
