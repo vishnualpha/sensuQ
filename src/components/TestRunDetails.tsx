@@ -515,6 +515,29 @@ export default function TestRunDetails() {
                     </div>
                   </div>
                   
+                  {/* Test Selection Controls */}
+                  {testRun.status === 'ready_for_execution' && (
+                    <div className="flex items-center justify-between mb-4 p-3 bg-blue-50 rounded-lg">
+                      <div className="flex items-center space-x-4">
+                        <span className="text-sm font-medium text-blue-900">
+                          {selectedTestCases.length} of {testRun.testCases.length} tests selected
+                        </span>
+                        <button
+                          onClick={() => setSelectedTestCases(testRun.testCases.map(tc => tc.id))}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          onClick={() => setSelectedTestCases([])}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
                   {testRun.testCases.map((testCase, index) => (
                     <div key={index} className={`border-l-4 border rounded-lg p-4 ${
                       testCase.status === 'passed' ? 'border-green-200 bg-green-50' :
@@ -523,17 +546,35 @@ export default function TestRunDetails() {
                     }`}>
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
+                          {/* Test Selection Checkbox */}
+                          {testRun.status === 'ready_for_execution' && (
+                            <div className="flex items-center mb-2">
+                              <input
+                                type="checkbox"
+                                id={`test-${testCase.id}`}
+                                checked={selectedTestCases.includes(testCase.id)}
+                                onChange={(e) => handleTestCaseSelection(testCase.id, e.target.checked)}
+                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                              />
+                              <label htmlFor={`test-${testCase.id}`} className="ml-2 text-sm text-gray-700">
+                                Select for execution
+                              </label>
+                            </div>
+                          )}
+                          
                           {/* Test Type Badge */}
                           <div className="flex items-center space-x-2 mb-2">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                               testCase.test_type === 'functional' ? 'bg-green-100 text-green-800' :
                               testCase.test_type === 'accessibility' ? 'bg-purple-100 text-purple-800' :
                               testCase.test_type === 'performance' ? 'bg-orange-100 text-orange-800' :
+                              testCase.test_type === 'flow' ? 'bg-blue-100 text-blue-800' :
                               'bg-gray-100 text-gray-800'
                             }`}>
                               {testCase.test_type === 'functional' && <CheckCircle className="h-3 w-3 mr-1" />}
                               {testCase.test_type === 'accessibility' && <Shield className="h-3 w-3 mr-1" />}
                               {testCase.test_type === 'performance' && <Zap className="h-3 w-3 mr-1" />}
+                              {testCase.test_type === 'flow' && <Activity className="h-3 w-3 mr-1" />}
                               {testCase.test_type?.charAt(0).toUpperCase() + testCase.test_type?.slice(1) || 'Unknown'}
                             </span>
                           </div>
