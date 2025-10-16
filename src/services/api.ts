@@ -60,6 +60,8 @@ export const configAPI = {
 export const testAPI = {
   getRuns: () => api.get('/tests/runs'),
   getRunDetails: (id: number) => api.get(`/tests/runs/${id}`),
+  getExecutionHistory: (testRunId: number) => api.get(`/tests/runs/${testRunId}/executions`),
+  getExecutionDetails: (executionId: number) => api.get(`/tests/executions/${executionId}`),
   getDashboardStats: () => api.get('/tests/dashboard/stats'),
 };
 
@@ -79,6 +81,8 @@ export const crawlerAPI = {
   
   executeTests: (testRunId: number, selectedTestCaseIds: number[]) => 
     api.post(`/crawler/execute/${testRunId}`, { selectedTestCaseIds }),
+  executeTests: (testRunId: number, selectedTestCaseIds: number[], executionName?: string) => 
+    api.post(`/crawler/execute/${testRunId}`, { selectedTestCaseIds, executionName }),
 };
 
 // Reports API

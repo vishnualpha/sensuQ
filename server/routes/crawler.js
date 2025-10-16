@@ -166,7 +166,7 @@ router.post('/cancel/:testRunId', async (req, res) => {
 router.post('/execute/:testRunId', async (req, res) => {
   try {
     const { testRunId } = req.params;
-    const { selectedTestCaseIds } = req.body;
+    const { selectedTestCaseIds, executionName } = req.body;
 
     // Validate test run exists and belongs to user
     const runResult = await pool.query(`
@@ -180,25 +180,27 @@ router.post('/execute/:testRunId', async (req, res) => {
 
     const testRun = runResult.rows[0];
     
-    if (testRun.status !== 'ready_for_execution') {
-      return res.status(400).json({ error: 'Test run is not ready for execution' });
+    if (!['ready_for_execution', 'completed'].includes(testRun.status)) {
+      return res.status(400).json({ error: 'Test run is not available for execution' });
     }
 
-    // Update status to executing
-    await pool.query(`
-      UPDATE test_runs 
-      SET status = 'executing'
-      WHERE id = $1
-    `, [testRunId]);
+    // Create new test execution record
+    const executionResult = await pool.query(`
+      INSERT INTO test_executions (test_run_id, execution_name, status, executed_by, total_test_cases)
+      VALUES ($1, $2, 'running', $3, $4)
+      RETURNING id
+    `, [testRunId, executionName || 'Manual Execution', req.user.id, selectedTestCaseIds.length]);
 
+    const executionId = executionResult.rows[0].id;
     // Start test execution in background
     const { TestExecutor } = require('../services/testExecutor');
-    const executor = new TestExecutor(testRunId, selectedTestCaseIds, req.io);
+    const executor = new TestExecutor(testRunId, selectedTestCaseIds, executionId, req.io);
     executor.start();
 
     res.json({ 
       message: 'Test execution started',
       testRunId: testRunId,
+      executionId: executionId,
       selectedTests: selectedTestCaseIds.length
     });
   } catch (error) {

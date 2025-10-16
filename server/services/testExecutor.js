@@ -4,9 +4,10 @@ const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
 
 class TestExecutor {
-  constructor(testRunId, selectedTestCaseIds, io) {
+  constructor(testRunId, selectedTestCaseIds, executionId, io) {
     this.testRunId = testRunId;
     this.selectedTestCaseIds = selectedTestCaseIds || [];
+    this.executionId = executionId;
     this.io = io;
     this.browsers = [];
     this.isRunning = false;
@@ -29,12 +30,12 @@ class TestExecutor {
       // Execute selected test cases
       await this.executeSelectedTests();
       
-      await this.updateRunStatus('completed');
+      await this.updateExecutionStatus('completed');
       this.emitProgress('Test execution completed successfully', 100, 'completed');
       
     } catch (error) {
       logger.error(`Test execution error: ${error.message}`);
-      await this.updateRunStatus('failed', error.message);
+      await this.updateExecutionStatus('failed', error.message);
       this.emitProgress(`Test execution failed: ${error.message}`, 0, 'failed');
     } finally {
       await this.cleanup();
@@ -106,7 +107,7 @@ class TestExecutor {
       SELECT tc.*, dp.url, dp.title 
       FROM test_cases tc
       JOIN discovered_pages dp ON tc.page_id = dp.id
-      WHERE ${whereClause} AND tc.status = 'pending'
+      WHERE ${whereClause}
       ORDER BY tc.id
     `, params);
     
@@ -115,6 +116,7 @@ class TestExecutor {
     let passedTests = 0;
     let failedTests = 0;
     let flakyTests = 0;
+    let skippedTests = 0;
 
     this.emitProgress(`Executing ${testCases.length} selected test cases...`, 5, 'executing');
 
@@ -170,36 +172,36 @@ class TestExecutor {
           errorDetails = error.message;
         }
 
-        // Update test case result
+        // Save test case execution result
         await pool.query(`
-          UPDATE test_cases 
-          SET actual_result = $1, status = $2, execution_time = $3, self_healed = $4, error_details = $5, executed_at = CURRENT_TIMESTAMP
-          WHERE id = $6
-        `, [actualResult, finalStatus, Math.round(executionTime), isFlaky, errorDetails, testCase.id]);
+          INSERT INTO test_case_executions (test_execution_id, test_case_id, status, execution_time, 
+                                          browser_results, actual_result, error_details, self_healed, end_time)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+        `, [this.executionId, testCase.id, finalStatus, Math.round(executionTime), 
+            JSON.stringify(results), actualResult, errorDetails, isFlaky]);
 
         // Update progress and counts in real-time
         const executionProgress = 5 + (totalTests / testCases.length) * 90;
         await pool.query(`
-          UPDATE test_runs 
-          SET passed_tests = $1, failed_tests = $2, flaky_tests = $3
-          WHERE id = $4
-        `, [passedTests, failedTests, flakyTests, this.testRunId]);
+          UPDATE test_executions 
+          SET passed_tests = $1, failed_tests = $2, flaky_tests = $3, skipped_tests = $4
+          WHERE id = $5
+        `, [passedTests, failedTests, flakyTests, skippedTests, this.executionId]);
         
         this.emitProgress(`Executed ${totalTests}/${testCases.length} tests (${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky)`, Math.min(executionProgress, 95), 'executing');
         
       } catch (error) {
         logger.error(`Error executing test case ${testCase.id}: ${error.message}`);
+        skippedTests++;
       }
     }
 
-    // Calculate final coverage
-    const finalTestCoverage = Math.min((totalTests / testCases.length) * 100, 100);
-
+    // Update final execution results
     await pool.query(`
-      UPDATE test_runs 
-      SET passed_tests = $1, failed_tests = $2, flaky_tests = $3, coverage_percentage = $4
-      WHERE id = $5
-    `, [passedTests, failedTests, flakyTests, finalTestCoverage, this.testRunId]);
+      UPDATE test_executions 
+      SET passed_tests = $1, failed_tests = $2, flaky_tests = $3, skipped_tests = $4, total_test_cases = $5
+      WHERE id = $6
+    `, [passedTests, failedTests, flakyTests, skippedTests, totalTests, this.executionId]);
 
     logger.info(`Test execution completed: ${totalTests} total, ${passedTests} passed, ${failedTests} failed, ${flakyTests} flaky`);
   }
@@ -370,24 +372,25 @@ class TestExecutor {
     return alternatives;
   }
 
-  async updateRunStatus(status, errorMessage = null) {
+  async updateExecutionStatus(status, errorMessage = null) {
     await pool.query(`
-      UPDATE test_runs 
-      SET status = $1, end_time = CURRENT_TIMESTAMP, error_message = $2
+      UPDATE test_executions 
+      SET status = $1, end_time = CURRENT_TIMESTAMP
       WHERE id = $3
-    `, [status, errorMessage, this.testRunId]);
+    `, [status, this.executionId]);
   }
 
   emitProgress(message, percentage, phase) {
     this.io.emit('testExecutionProgress', {
       testRunId: this.testRunId,
+      executionId: this.executionId,
       message,
       percentage,
       phase,
       timestamp: new Date().toISOString()
     });
     
-    logger.info(`Test Execution Progress [${this.testRunId}] [${phase}]: ${message} (${Math.round(percentage)}%)`);
+    logger.info(`Test Execution Progress [${this.testRunId}/${this.executionId}] [${phase}]: ${message} (${Math.round(percentage)}%)`);
   }
 
   async cleanup() {

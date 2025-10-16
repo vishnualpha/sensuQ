@@ -167,6 +167,7 @@ export default function TestRunDetails() {
   useEffect(() => {
     if (id) {
       fetchTestRunDetails(parseInt(id));
+      fetchExecutionHistory(parseInt(id));
     }
   }, [id]);
 
@@ -212,6 +213,14 @@ export default function TestRunDetails() {
     }
   };
 
+  const fetchExecutionHistory = async (runId: number) => {
+    try {
+      const response = await testAPI.getExecutionHistory(runId);
+      setExecutionHistory(response.data);
+    } catch (error) {
+      console.error('Error fetching execution history:', error);
+    }
+  };
   const downloadReport = async (format: 'pdf' | 'json') => {
     if (!testRun) return;
     
@@ -252,11 +261,14 @@ export default function TestRunDetails() {
     
     setRunningTests(true);
     try {
-      await crawlerAPI.executeTests(testRun.id, selectedTestCases);
+      await crawlerAPI.executeTests(testRun.id, selectedTestCases, executionName || 'Manual Execution');
+      // Refresh execution history after starting new execution
+      setTimeout(() => fetchExecutionHistory(testRun.id), 1000);
     } catch (error) {
       console.error('Error running tests:', error);
     } finally {
       setRunningTests(false);
+      setExecutionName('');
     }
   };
 
@@ -371,19 +383,35 @@ export default function TestRunDetails() {
             </button>
           )}
           
-          {testRun.status === 'ready_for_execution' && (
-            <button
-              onClick={handleRunTests}
-              disabled={runningTests || selectedTestCases.length === 0}
-              className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-            >
-              {runningTests ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
-              ) : (
-                <PlayCircle className="h-4 w-4 mr-2" />
-              )}
-              {runningTests ? 'Running...' : 'Run Selected Tests'}
-            </button>
+          {['ready_for_execution', 'completed'].includes(testRun.status) && (
+            <div className="flex items-center space-x-3">
+              <input
+                type="text"
+                placeholder="Execution name (optional)"
+                value={executionName}
+                onChange={(e) => setExecutionName(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+              <button
+                onClick={handleRunTests}
+                disabled={runningTests || selectedTestCases.length === 0}
+                className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+              >
+                {runningTests ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                ) : (
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                )}
+                {runningTests ? 'Running...' : 'Run Selected Tests'}
+              </button>
+              <button
+                onClick={() => setShowExecutionHistory(!showExecutionHistory)}
+                className="inline-flex items-center px-4 py-2 border border-blue-300 text-sm font-medium rounded-md shadow-sm text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <Clock className="h-4 w-4 mr-2" />
+                Execution History ({executionHistory.length})
+              </button>
+            </div>
           )}
           
           <button
@@ -463,6 +491,55 @@ export default function TestRunDetails() {
         </div>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Execution History */}
+      {showExecutionHistory && (
+        <div className="card">
+          <div className="card-header">
+            <h3 className="text-lg font-medium text-gray-900">Execution History</h3>
+          </div>
+          <div className="card-body">
+            {executionHistory.length === 0 ? (
+              <p className="text-gray-500 text-center py-4">No executions yet</p>
+            ) : (
+              <div className="space-y-4">
+                {executionHistory.map((execution) => (
+                  <div key={execution.id} className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium text-gray-900">{execution.execution_name}</h4>
+                        <p className="text-sm text-gray-500">
+                          {new Date(execution.start_time).toLocaleString()}
+                          {execution.end_time && (
+                            <span> - {new Date(execution.end_time).toLocaleString()}</span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-sm">
+                          <span className="text-green-600">{execution.passed_tests} passed</span>
+                          <span className="text-red-600 ml-2">{execution.failed_tests} failed</span>
+                          {execution.flaky_tests > 0 && (
+                            <span className="text-yellow-600 ml-2">{execution.flaky_tests} flaky</span>
+                          )}
+                        </div>
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          execution.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          execution.status === 'failed' ? 'bg-red-100 text-red-800' :
+                          execution.status === 'running' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {execution.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
         <div className="lg:col-span-2 space-y-6">
           {/* Status Card */}
           <div className="card">

@@ -89,4 +89,63 @@ router.get('/dashboard/stats', async (req, res) => {
   }
 });
 
+// Get test executions for a test run
+router.get('/runs/:id/executions', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      SELECT te.*, 
+             COUNT(tce.id) as total_test_cases,
+             COUNT(CASE WHEN tce.status = 'passed' THEN 1 END) as passed_tests,
+             COUNT(CASE WHEN tce.status = 'failed' THEN 1 END) as failed_tests,
+             COUNT(CASE WHEN tce.status = 'flaky' THEN 1 END) as flaky_tests,
+             COUNT(CASE WHEN tce.status = 'skipped' THEN 1 END) as skipped_tests
+      FROM test_executions te
+      LEFT JOIN test_case_executions tce ON te.id = tce.test_execution_id
+      WHERE te.test_run_id = $1
+      GROUP BY te.id
+      ORDER BY te.start_time DESC
+    `, [id]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching test executions:', error);
+    res.status(500).json({ error: 'Failed to fetch test executions' });
+  }
+});
+
+    // Get execution details
+    const executionResult = await pool.query(`
+      SELECT te.*, tr.config_name, tr.target_url
+      FROM test_executions te
+      JOIN test_runs tr ON te.test_run_id = tr.id
+      WHERE te.id = $1
+    `, [id]);
+// Get detailed results for a specific test execution
+    if (executionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test execution not found' });
+    }
+router.get('/executions/:id', async (req, res) => {
+    const execution = executionResult.rows[0];
+  try {
+    // Get test case execution results
+    const testCaseResults = await pool.query(`
+      SELECT tce.*, tc.test_name, tc.test_description, tc.test_type, tc.expected_result
+      FROM test_case_executions tce
+      JOIN test_cases tc ON tce.test_case_id = tc.id
+      WHERE tce.test_execution_id = $1
+      ORDER BY tce.executed_at
+    `, [id]);
+    const { id } = req.params;
+    res.json({
+      ...execution,
+      testCaseResults: testCaseResults.rows
+    });
+  } catch (error) {
+    console.error('Error fetching test execution details:', error);
+    res.status(500).json({ error: 'Failed to fetch test execution details' });
+  }
+});
+
 module.exports = router;
