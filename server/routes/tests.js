@@ -119,20 +119,20 @@ router.get('/runs/:id/executions', async (req, res) => {
     const executionResult = await pool.query(`
       SELECT te.*, tr.config_name, tr.target_url
       FROM test_executions te
+    // Get execution details
+    const executionResult = await pool.query(`
+      SELECT te.*, tc.name as config_name, tc.target_url
+      FROM test_executions te
       JOIN test_runs tr ON te.test_run_id = tr.id
+      JOIN test_configs tc ON tr.test_config_id = tc.id
       WHERE te.id = $1
     `, [id]);
-// Get detailed results for a specific test execution
-router.get('/executions/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
 
     if (executionResult.rows.length === 0) {
       return res.status(404).json({ error: 'Test execution not found' });
     }
 
     const execution = executionResult.rows[0];
-
 
     // Get test case execution results
     const testCaseResults = await pool.query(`
