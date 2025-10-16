@@ -37,7 +37,7 @@ class PlaywrightCrawler {
       }
 
       // Start crawling
-      await this.crawlWebsite();
+      await this.crawlAndGenerateTests();
       
       // Check if crawling was stopped manually
       if (this.shouldStopCrawling) {
@@ -125,6 +125,28 @@ class PlaywrightCrawler {
     }
 
     logger.info(`Successfully launched ${this.browsers.length} browser(s): ${this.browsers.map(b => b.type).join(', ')}`);
+  }
+
+  async crawlAndGenerateTests() {
+    const browser = this.browsers[0].browser; // Use first available browser
+    const context = await browser.newContext();
+    
+    // Handle authentication if credentials provided
+    if (this.config.credentials) {
+      const credentials = JSON.parse(decrypt(this.config.credentials));
+      if (credentials.username && credentials.password) {
+        await context.setHTTPCredentials({
+          username: credentials.username,
+          password: credentials.password
+        });
+      }
+    }
+
+    const page = await context.newPage();
+    
+    await this.crawlPageAndGenerateTests(page, this.config.target_url, 0);
+    
+    await context.close();
   }
 
   async crawlAndGenerateTests() {
