@@ -189,30 +189,45 @@ class PlaywrightCrawler {
       const elements = await page.$$('*');
       const elementsCount = elements.length;
 
-      // Take screenshot (create directory if it doesn't exist)
-      const screenshotDir = path.join(__dirname, '../screenshots');
-      const fsPromises = require('fs').promises;
+      // Take screenshot and save as base64 in database
+      let screenshotData = null;
+      let imageSize = 0;
+      let imageFormat = 'png';
+      let screenshotPath = null; // Keep for backward compatibility
       
-      if (!fs.existsSync(screenshotDir)) {
-        await fsPromises.mkdir(screenshotDir, { recursive: true });
-      }
-      
-      const screenshotFilename = `${this.testRunId}_${Date.now()}.png`;
-      const screenshotPath = `${screenshotDir}/${screenshotFilename}`;
       try {
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        logger.info(`Screenshot saved: ${screenshotPath}`);
+        const screenshotBuffer = await page.screenshot({ 
+          fullPage: true, 
+          type: 'png',
+          quality: 80 // Optimize file size
+        });
+        
+        screenshotData = screenshotBuffer.toString('base64');
+        imageSize = screenshotBuffer.length;
+        imageFormat = 'png';
+        
+        // Also save to file system as backup (optional)
+        const screenshotDir = path.join(__dirname, '../screenshots');
+        if (!fs.existsSync(screenshotDir)) {
+          await fs.promises.mkdir(screenshotDir, { recursive: true });
+        }
+        
+        const screenshotFilename = `${this.testRunId}_${Date.now()}.png`;
+        screenshotPath = path.join(screenshotDir, screenshotFilename);
+        await fs.promises.writeFile(screenshotPath, screenshotBuffer);
+        
+        logger.info(`Screenshot saved to database and file: ${screenshotPath}`);
       } catch (screenshotError) {
         logger.warn(`Failed to take screenshot: ${screenshotError.message}`);
-        screenshotPath = null;
       }
 
       // Save discovered page
       const pageResult = await pool.query(`
-        INSERT INTO discovered_pages (test_run_id, url, title, elements_count, screenshot_path, crawl_depth)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO discovered_pages (test_run_id, url, title, elements_count, screenshot_path, 
+                                    screenshot_data, image_size, image_format, crawl_depth)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id
-      `, [this.testRunId, url, title, elementsCount, screenshotPath, depth]);
+      `, [this.testRunId, url, title, elementsCount, screenshotPath, screenshotData, imageSize, imageFormat, depth]);
 
       const pageId = pageResult.rows[0].id;
       this.discoveredPages.push({ id: pageId, url, title, elementsCount, depth });

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 // Component to handle screenshot loading with base64 data URLs
-function ScreenshotImage({ filename, alt }: { filename: string; alt: string }) {
+function ScreenshotImage({ pageId, filename, alt }: { pageId?: number; filename?: string; alt: string }) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -27,7 +27,12 @@ function ScreenshotImage({ filename, alt }: { filename: string; alt: string }) {
   useEffect(() => {
     const loadScreenshot = async () => {
       try {
-        const response = await fetch(`http://localhost:3001/api/screenshots/${filename}`);
+        // Try database first (by pageId), then fallback to filename
+        const url = pageId 
+          ? `http://localhost:3001/api/screenshots/page/${pageId}`
+          : `http://localhost:3001/api/screenshots/${filename}`;
+          
+        const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
           setImageSrc(data.dataUrl);
@@ -42,8 +47,10 @@ function ScreenshotImage({ filename, alt }: { filename: string; alt: string }) {
       }
     };
 
-    loadScreenshot();
-  }, [filename]);
+    if (pageId || filename) {
+      loadScreenshot();
+    }
+  }, [pageId, filename]);
 
   if (loading) {
     return (
@@ -410,21 +417,16 @@ export default function TestRunDetails() {
                       <div className="flex items-start space-x-4">
                         {/* Screenshot */}
                         <div className="flex-shrink-0">
-                          {page.screenshot_path ? (
+                          {page.id ? (
                             <ScreenshotImage 
-                              filename={page.screenshot_path.split('/').pop()}
+                              pageId={page.id}
                               alt={`Screenshot of ${page.title || page.url}`}
                             />
                           ) : (
-                            null
-                          )}
-                          {/* Fallback icon - shown when image fails to load */}
-                          <div 
-                            className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm"
-                            style={{ display: page.screenshot_path ? 'none' : 'flex' }}
-                          >
+                            <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm">
                               <Globe className="h-8 w-8 text-gray-400" />
-                          </div>
+                            </div>
+                          )}
                         </div>
                         
                         {/* Page Details */}

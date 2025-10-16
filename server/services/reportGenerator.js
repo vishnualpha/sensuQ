@@ -347,7 +347,12 @@ function generateJSONReport(testRun, discoveredPages, testCases) {
       elementsCount: page.elements_count,
       crawlDepth: page.crawl_depth,
       discoveredAt: page.discovered_at,
-      screenshotPath: page.screenshot_path
+      screenshotPath: page.screenshot_path,
+      hasScreenshot: !!page.screenshot_data,
+      screenshotSize: page.image_size || 0,
+      screenshotFormat: page.image_format || 'png',
+      // Include base64 screenshot data in JSON report
+      screenshotData: page.screenshot_data ? `data:image/${page.image_format || 'png'};base64,${page.screenshot_data}` : null
     })),
     testCases: testCases.map(testCase => {
       let parsedSteps = [];
