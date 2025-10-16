@@ -162,6 +162,9 @@ export default function TestRunDetails() {
   const [stoppingCrawler, setStoppingCrawler] = useState(false);
   const [selectedTestCases, setSelectedTestCases] = useState<number[]>([]);
   const [runningTests, setRunningTests] = useState(false);
+  const [executionHistory, setExecutionHistory] = useState<any[]>([]);
+  const [showExecutionHistory, setShowExecutionHistory] = useState(false);
+  const [executionName, setExecutionName] = useState('');
   const { socket } = useSocket();
 
   useEffect(() => {
