@@ -163,6 +163,14 @@ class IntelligentPageAnalyzer {
       return this.getFallbackAnalysisFromContext(pageContext, url);
     }
 
+    logger.info(`\n========== PAGE CONTEXT EXTRACTION ==========`);
+    logger.info(`Clickable elements found: ${pageContext.clickableElements?.length || 0}`);
+    logger.info(`Buttons found: ${pageContext.buttons?.length || 0}`);
+    logger.info(`Links found: ${pageContext.links?.length || 0}`);
+    if (pageContext.clickableElements && pageContext.clickableElements.length > 0) {
+      logger.info(`Sample clickable elements: ${JSON.stringify(pageContext.clickableElements.slice(0, 3), null, 2)}`);
+    }
+
     const prompt = promptLoader.renderPrompt('page-analysis.txt', {
       businessContext: this.config.business_context || '',
       url: url,
@@ -186,6 +194,13 @@ class IntelligentPageAnalyzer {
     try {
       const response = await this.testGenerator.callLLM(prompt);
       const analysis = JSON.parse(response);
+
+      logger.info(`\n========== LLM ANALYSIS RESPONSE ==========`);
+      logger.info(`Key interactions returned: ${analysis.keyInteractions?.length || 0}`);
+      logger.info(`Links to follow: ${analysis.linksToFollow?.length || 0}`);
+      if (analysis.keyInteractions && analysis.keyInteractions.length > 0) {
+        logger.info(`Sample interactions: ${JSON.stringify(analysis.keyInteractions, null, 2)}`);
+      }
 
       if (analysis.linksToFollow && analysis.linksToFollow.length > 0) {
         analysis.linksToFollow = analysis.linksToFollow.map(link => {
@@ -259,6 +274,44 @@ class IntelligentPageAnalyzer {
   identifyBasicInteractions(pageContext) {
     const interactions = [];
 
+    logger.info(`identifyBasicInteractions: clickableElements = ${pageContext.clickableElements?.length || 0}`);
+
+    if (pageContext.clickableElements && pageContext.clickableElements.length > 0) {
+      const clickables = pageContext.clickableElements.slice(0, 10);
+
+      clickables.forEach((element, index) => {
+        if (element.text && element.text.length > 0) {
+          interactions.push({
+            description: `Click on "${element.text.substring(0, 50)}" to reveal content`,
+            selector: element.selector,
+            type: 'click',
+            expectedOutcome: `Navigate or reveal new content from ${element.text.substring(0, 30)}`,
+            priority: index < 3 ? 'high' : 'medium'
+          });
+        }
+      });
+    }
+
+    if (pageContext.buttons && pageContext.buttons.length > 0) {
+      pageContext.buttons.slice(0, 5).forEach((button, index) => {
+        if (button.text && button.text.length > 0) {
+          const selector = button.attributes.id
+            ? `#${button.attributes.id}`
+            : button.attributes.class
+              ? `.${button.attributes.class.split(' ')[0]}`
+              : 'button';
+
+          interactions.push({
+            description: `Click button: "${button.text.substring(0, 50)}"`,
+            selector: selector,
+            type: 'click',
+            expectedOutcome: `Trigger action from button ${button.text.substring(0, 30)}`,
+            priority: index < 2 ? 'high' : 'medium'
+          });
+        }
+      });
+    }
+
     if (pageContext.hasSearchForm && pageContext.inputs.length > 0) {
       const searchInput = pageContext.inputs.find(i =>
         i.attributes.type === 'search' ||
@@ -286,6 +339,8 @@ class IntelligentPageAnalyzer {
         priority: 'high'
       });
     }
+
+    logger.info(`identifyBasicInteractions: returning ${interactions.length} interactions`);
 
     return interactions;
   }
