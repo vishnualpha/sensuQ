@@ -104,9 +104,9 @@ class TestExecutor {
     }
     
     const testCasesResult = await pool.query(`
-      SELECT tc.*, dp.url, dp.title 
+      SELECT tc.*, dp.url, dp.title
       FROM test_cases tc
-      JOIN discovered_pages dp ON tc.page_id = dp.id
+      LEFT JOIN discovered_pages dp ON tc.page_id = dp.id
       WHERE ${whereClause}
       ORDER BY tc.id
     `, params);

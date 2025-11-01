@@ -145,4 +145,64 @@ router.post('/test', async (req, res) => {
   }
 });
 
+// Update test configuration
+router.put('/test/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, targetUrl, businessContext, credentials, maxDepth, maxPages, includeAccessibility, includePerformance, llmConfigId, testGenerationDepth } = req.body;
+
+    if (!name || !targetUrl) {
+      return res.status(400).json({ error: 'Name and target URL are required' });
+    }
+
+    const encryptedCredentials = credentials ? encrypt(JSON.stringify(credentials)) : null;
+
+    const validatedMaxDepth = maxDepth && maxDepth !== '' ? parseInt(maxDepth) : 3;
+    const validatedMaxPages = maxPages && maxPages !== '' ? parseInt(maxPages) : 50;
+    const validatedLlmConfigId = llmConfigId && llmConfigId !== '' ? parseInt(llmConfigId) : null;
+    const validatedTestGenerationDepth = testGenerationDepth && testGenerationDepth !== '' ? parseInt(testGenerationDepth) : 3;
+
+    const result = await pool.query(`
+      UPDATE test_configs
+      SET name = $1, target_url = $2, business_context = $3, credentials = $4, max_depth = $5,
+          max_pages = $6, include_accessibility = $7, include_performance = $8, llm_config_id = $9,
+          test_generation_depth = $10, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $11 AND created_by = $12
+      RETURNING *
+    `, [name, targetUrl, businessContext, encryptedCredentials, validatedMaxDepth, validatedMaxPages,
+        includeAccessibility !== false, includePerformance !== false, validatedLlmConfigId,
+        validatedTestGenerationDepth, id, req.user.id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Test configuration not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating test config:', error);
+    res.status(500).json({ error: 'Failed to update test configuration' });
+  }
+});
+
+// Delete test configuration
+router.delete('/test/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM test_configs WHERE id = $1 AND created_by = $2',
+      [id, req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Test configuration not found' });
+    }
+
+    res.json({ message: 'Test configuration deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting test config:', error);
+    res.status(500).json({ error: 'Failed to delete test configuration' });
+  }
+});
+
 module.exports = router;

@@ -161,9 +161,40 @@ router.post('/execute/:testRunId', async (req, res) => {
     }
 
     const testRun = runResult.rows[0];
-    
-    if (!['ready_for_execution', 'completed'].includes(testRun.status)) {
-      return res.status(400).json({ error: 'Test run is not available for execution' });
+
+    if (testRun.status === 'running') {
+      return res.status(400).json({ error: 'Test run is still in progress. Wait for it to complete before executing tests.' });
+    }
+
+    if (testRun.status === 'pending') {
+      return res.status(400).json({ error: 'Test run has not started yet.' });
+    }
+
+    if (testRun.status === 'failed') {
+      return res.status(400).json({ error: 'Test run failed. Cannot execute tests from a failed run.' });
+    }
+
+    if (testRun.status === 'cancelled') {
+      return res.status(400).json({ error: 'Test run was cancelled.' });
+    }
+
+    // Validate that test cases exist
+    if (!selectedTestCaseIds || selectedTestCaseIds.length === 0) {
+      return res.status(400).json({ error: 'No test cases selected for execution' });
+    }
+
+    // Verify test cases belong to this test run
+    const validationResult = await pool.query(`
+      SELECT COUNT(*) as count
+      FROM test_cases
+      WHERE test_run_id = $1 AND id = ANY($2)
+    `, [testRunId, selectedTestCaseIds]);
+
+    const validCount = parseInt(validationResult.rows[0].count);
+    if (validCount !== selectedTestCaseIds.length) {
+      return res.status(400).json({
+        error: `Some selected test cases do not belong to this test run. Expected ${selectedTestCaseIds.length}, found ${validCount}`
+      });
     }
 
     // Create new test execution record
