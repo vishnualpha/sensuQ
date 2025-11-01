@@ -44,29 +44,29 @@ class SmartCrawlingStrategy {
 
   shouldCrawlUrl(url, depth) {
     if (!url || url.startsWith('#') || url.startsWith('javascript:') || url.startsWith('mailto:')) {
-      logger.debug(`Rejecting URL (invalid/special): ${url}`);
+      logger.info(`Rejecting URL (invalid/special): ${url}`);
       return false;
     }
 
     const normalizedUrl = this.normalizeUrl(url);
 
     if (this.visited.has(normalizedUrl)) {
-      logger.debug(`Rejecting URL (already visited): ${normalizedUrl}`);
+      logger.info(`Rejecting URL (already visited): ${normalizedUrl}`);
       return false;
     }
 
     if (!this.isSameDomain(url)) {
-      logger.debug(`Rejecting URL (external domain): ${url}`);
+      logger.info(`Rejecting URL (external domain): ${url} - Expected domain: ${this.domainWhitelist}`);
       return false;
     }
 
     if (depth > this.maxDepth) {
-      logger.debug(`Rejecting URL (max depth ${this.maxDepth}): ${url}`);
+      logger.info(`Rejecting URL (max depth ${this.maxDepth}): ${url}`);
       return false;
     }
 
     if (this.crawledCount >= this.maxPages) {
-      logger.debug(`Rejecting URL (max pages ${this.maxPages} reached)`);
+      logger.info(`Rejecting URL (max pages ${this.maxPages} reached)`);
       return false;
     }
 
@@ -81,12 +81,12 @@ class SmartCrawlingStrategy {
 
     for (const pattern of excludePatterns) {
       if (pattern.test(urlLower)) {
-        logger.debug(`Rejecting URL (pattern ${pattern}): ${url}`);
+        logger.info(`Rejecting URL (pattern ${pattern}): ${url}`);
         return false;
       }
     }
 
-    logger.debug(`Accepting URL for crawl: ${url}`);
+    logger.info(`Accepting URL for crawl: ${url}`);
     return true;
   }
 
@@ -197,7 +197,13 @@ class SmartCrawlingStrategy {
 
     for (const link of links.slice(0, 20)) {
       const linkUrl = this.resolveUrl(link.url || link.href, currentUrl);
-      if (!linkUrl) continue;
+
+      logger.info(`Processing link: text="${link.text}", url="${link.url}", href="${link.href}", resolved="${linkUrl}"`);
+
+      if (!linkUrl) {
+        logger.info(`Skipping link (no URL): ${link.text}`);
+        continue;
+      }
 
       const priority = this.calculateLinkPriority(link);
       const reason = `Link: ${link.text || 'Unknown'}`;
