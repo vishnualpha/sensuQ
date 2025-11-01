@@ -44,25 +44,29 @@ class SmartCrawlingStrategy {
 
   shouldCrawlUrl(url, depth) {
     if (!url || url.startsWith('#') || url.startsWith('javascript:') || url.startsWith('mailto:')) {
+      logger.debug(`Rejecting URL (invalid/special): ${url}`);
       return false;
     }
 
-    if (this.visited.has(url)) {
+    const normalizedUrl = this.normalizeUrl(url);
+
+    if (this.visited.has(normalizedUrl)) {
+      logger.debug(`Rejecting URL (already visited): ${normalizedUrl}`);
       return false;
     }
 
     if (!this.isSameDomain(url)) {
-      logger.debug(`Skipping external domain: ${url}`);
+      logger.debug(`Rejecting URL (external domain): ${url}`);
       return false;
     }
 
     if (depth > this.maxDepth) {
-      logger.debug(`Max depth reached for: ${url}`);
+      logger.debug(`Rejecting URL (max depth ${this.maxDepth}): ${url}`);
       return false;
     }
 
     if (this.crawledCount >= this.maxPages) {
-      logger.debug(`Max pages reached: ${this.maxPages}`);
+      logger.debug(`Rejecting URL (max pages ${this.maxPages} reached)`);
       return false;
     }
 
@@ -77,11 +81,12 @@ class SmartCrawlingStrategy {
 
     for (const pattern of excludePatterns) {
       if (pattern.test(urlLower)) {
-        logger.debug(`Excluding URL by pattern ${pattern}: ${url}`);
+        logger.debug(`Rejecting URL (pattern ${pattern}): ${url}`);
         return false;
       }
     }
 
+    logger.debug(`Accepting URL for crawl: ${url}`);
     return true;
   }
 

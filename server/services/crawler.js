@@ -260,10 +260,14 @@ class PlaywrightCrawler {
         WHERE id = $3
       `, [this.discoveredPages.length, currentCoverage, this.testRunId]);
 
-      this.crawlStrategy.addLinksFromAnalysis(analysis, task.url, task.depth);
+      const addedFromAnalysis = this.crawlStrategy.addLinksFromAnalysis(analysis, task.url, task.depth);
+      logger.info(`Added ${addedFromAnalysis} links from LLM analysis`);
 
       const pageLinks = await this.interactionHandler.extractLinks(page);
-      this.crawlStrategy.addLinksFromPage(pageLinks, task.url, task.depth);
+      logger.info(`Extracted ${pageLinks.length} total links from page`);
+
+      const addedFromPage = this.crawlStrategy.addLinksFromPage(pageLinks, task.url, task.depth);
+      logger.info(`Added ${addedFromPage} links from page extraction`);
 
     } catch (error) {
       logger.error(`Error in intelligent crawl of ${task.url}: ${error.message}`);
