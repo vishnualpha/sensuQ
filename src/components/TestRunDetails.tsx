@@ -165,6 +165,8 @@ export default function TestRunDetails() {
   const [executionHistory, setExecutionHistory] = useState<any[]>([]);
   const [showExecutionHistory, setShowExecutionHistory] = useState(false);
   const [executionName, setExecutionName] = useState('');
+  const [expandedExecutions, setExpandedExecutions] = useState<Set<number>>(new Set());
+  const [executionDetails, setExecutionDetails] = useState<Map<number, any>>(new Map());
   const { socket } = useSocket();
 
   useEffect(() => {
@@ -293,6 +295,27 @@ export default function TestRunDetails() {
     } else {
       setSelectedTestCases(prev => prev.filter(id => id !== testCaseId));
     }
+  };
+
+  const toggleExecutionExpand = async (executionId: number) => {
+    const newExpanded = new Set(expandedExecutions);
+    if (newExpanded.has(executionId)) {
+      newExpanded.delete(executionId);
+    } else {
+      newExpanded.add(executionId);
+      // Fetch execution details if not already loaded
+      if (!executionDetails.has(executionId)) {
+        try {
+          const response = await testAPI.getExecutionDetails(executionId);
+          const newDetails = new Map(executionDetails);
+          newDetails.set(executionId, response.data);
+          setExecutionDetails(newDetails);
+        } catch (error) {
+          console.error('Error fetching execution details:', error);
+        }
+      }
+    }
+    setExpandedExecutions(newExpanded);
   };
 
   // Filter test cases based on selected type
@@ -517,38 +540,107 @@ export default function TestRunDetails() {
               <p className="text-gray-500 text-center py-4">No executions yet</p>
             ) : (
               <div className="space-y-4">
-                {executionHistory.map((execution) => (
-                  <div key={execution.id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-medium text-gray-900">{execution.execution_name}</h4>
-                        <p className="text-sm text-gray-500">
-                          {new Date(execution.start_time).toLocaleString()}
-                          {execution.end_time && (
-                            <span> - {new Date(execution.end_time).toLocaleString()}</span>
-                          )}
-                        </p>
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <div className="text-sm">
-                          <span className="text-green-600">{execution.passed_tests} passed</span>
-                          <span className="text-red-600 ml-2">{execution.failed_tests} failed</span>
-                          {execution.flaky_tests > 0 && (
-                            <span className="text-yellow-600 ml-2">{execution.flaky_tests} flaky</span>
-                          )}
+                {executionHistory.map((execution) => {
+                  const isExpanded = expandedExecutions.has(execution.id);
+                  const details = executionDetails.get(execution.id);
+
+                  return (
+                    <div key={execution.id} className="border rounded-lg">
+                      <div
+                        className="p-4 cursor-pointer hover:bg-gray-50"
+                        onClick={() => toggleExecutionExpand(execution.id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <button className="text-gray-500">
+                              {isExpanded ? '▼' : '▶'}
+                            </button>
+                            <div>
+                              <h4 className="font-medium text-gray-900">{execution.execution_name}</h4>
+                              <p className="text-sm text-gray-500">
+                                {new Date(execution.start_time).toLocaleString()}
+                                {execution.end_time && (
+                                  <span> - {new Date(execution.end_time).toLocaleString()}</span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-4">
+                            <div className="text-sm">
+                              <span className="text-green-600">{execution.passed_tests} passed</span>
+                              <span className="text-red-600 ml-2">{execution.failed_tests} failed</span>
+                              {execution.flaky_tests > 0 && (
+                                <span className="text-yellow-600 ml-2">{execution.flaky_tests} flaky</span>
+                              )}
+                            </div>
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                              execution.status === 'completed' ? 'bg-green-100 text-green-800' :
+                              execution.status === 'failed' ? 'bg-red-100 text-red-800' :
+                              execution.status === 'running' ? 'bg-blue-100 text-blue-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {execution.status}
+                            </span>
+                          </div>
                         </div>
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          execution.status === 'completed' ? 'bg-green-100 text-green-800' :
-                          execution.status === 'failed' ? 'bg-red-100 text-red-800' :
-                          execution.status === 'running' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {execution.status}
-                        </span>
                       </div>
+
+                      {isExpanded && details && (
+                        <div className="border-t p-4 bg-gray-50 space-y-3">
+                          <h5 className="font-medium text-gray-900 mb-3">Test Case Results:</h5>
+                          {details.testCaseResults && details.testCaseResults.map((testResult: any, idx: number) => (
+                            <div key={idx} className="bg-white rounded-lg p-3 border">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2">
+                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                      testResult.status === 'passed' ? 'bg-green-100 text-green-800' :
+                                      testResult.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                      testResult.status === 'flaky' ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {testResult.status}
+                                    </span>
+                                    <span className="font-medium text-gray-900">{testResult.test_name}</span>
+                                  </div>
+                                  <p className="text-sm text-gray-600 mt-1">{testResult.test_description}</p>
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {testResult.execution_time}ms
+                                </div>
+                              </div>
+
+                              {testResult.error_details && (
+                                <div className="mt-2 p-2 bg-red-50 rounded text-sm text-red-800">
+                                  <strong>Error:</strong> {testResult.error_details}
+                                </div>
+                              )}
+
+                              {testResult.screenshots && testResult.screenshots.length > 0 && (
+                                <div className="mt-3">
+                                  <p className="text-sm font-medium text-gray-700 mb-2">Screenshots ({testResult.screenshots.length}):</p>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    {testResult.screenshots.map((screenshot: any, sIdx: number) => (
+                                      <div key={sIdx} className="border rounded p-2">
+                                        <img
+                                          src={`data:image/png;base64,${screenshot.data}`}
+                                          alt={screenshot.description}
+                                          className="w-full h-32 object-cover rounded mb-1"
+                                        />
+                                        <p className="text-xs text-gray-600 truncate">{screenshot.description}</p>
+                                        <p className="text-xs text-gray-400">{screenshot.action || screenshot.step}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

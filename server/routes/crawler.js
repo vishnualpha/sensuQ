@@ -49,7 +49,7 @@ router.post('/start', async (req, res) => {
     const testRunId = runResult.rows[0].id;
 
     // Start autonomous crawler
-    const crawler = new AutonomousCrawler(testRunId, testConfig, llmConfig);
+    const crawler = new AutonomousCrawler(testRunId, testConfig, llmConfig, req.io);
     global.activeCrawlers.set(testRunId, crawler);
 
     // Start crawling in background

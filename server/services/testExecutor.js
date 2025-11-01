@@ -172,13 +172,16 @@ class TestExecutor {
           errorDetails = error.message;
         }
 
+        // Extract screenshots from results
+        const allScreenshots = results.flatMap(r => r.screenshots || []);
+
         // Save test case execution result
         await pool.query(`
-          INSERT INTO test_case_executions (test_execution_id, test_case_id, status, execution_time, 
-                                          browser_results, actual_result, error_details, self_healed, end_time)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-        `, [this.executionId, testCase.id, finalStatus, Math.round(executionTime), 
-            JSON.stringify(results), actualResult, errorDetails, isFlaky]);
+          INSERT INTO test_case_executions (test_execution_id, test_case_id, status, execution_time,
+                                          browser_results, actual_result, error_details, self_healed, screenshots, end_time)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+        `, [this.executionId, testCase.id, finalStatus, Math.round(executionTime),
+            JSON.stringify(results), actualResult, errorDetails, isFlaky, JSON.stringify(allScreenshots)]);
 
         // Update progress and counts in real-time
         const executionProgress = 5 + (totalTests / testCases.length) * 90;
@@ -208,32 +211,69 @@ class TestExecutor {
 
   async executeTestCase(testCase, pageData) {
     const results = [];
-    
+
     for (const browserInfo of this.browsers) {
       try {
         const context = await browserInfo.browser.newContext();
         const page = await context.newPage();
-        
+
         const startTime = Date.now();
-        
+        const screenshots = [];
+
         // Execute test steps
         let status = 'passed';
         let errorDetails = null;
-        
+
         try {
           await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
-          
+
+          // Capture initial page screenshot
+          const initialScreenshot = await page.screenshot({ fullPage: false });
+          screenshots.push({
+            step: 'initial',
+            description: 'Page loaded',
+            timestamp: new Date().toISOString(),
+            data: initialScreenshot.toString('base64')
+          });
+
           // Handle popups before executing test steps
           await this.handlePopupsAndModals(page);
-          
-          for (const step of testCase.steps) {
+
+          for (let i = 0; i < testCase.steps.length; i++) {
+            const step = testCase.steps[i];
             await this.executeTestStep(page, step);
+
+            // Capture screenshot after each step
+            const stepScreenshot = await page.screenshot({ fullPage: false });
+            screenshots.push({
+              step: i + 1,
+              action: step.action,
+              description: step.description || `${step.action} ${step.selector || ''}`,
+              timestamp: new Date().toISOString(),
+              data: stepScreenshot.toString('base64')
+            });
+
+            // Small delay to let animations complete
+            await page.waitForTimeout(500);
           }
-          
+
         } catch (error) {
           status = 'failed';
           errorDetails = error.message;
-          
+
+          // Capture error screenshot
+          try {
+            const errorScreenshot = await page.screenshot({ fullPage: false });
+            screenshots.push({
+              step: 'error',
+              description: `Error: ${error.message}`,
+              timestamp: new Date().toISOString(),
+              data: errorScreenshot.toString('base64')
+            });
+          } catch (screenshotError) {
+            logger.warn('Failed to capture error screenshot');
+          }
+
           // Attempt self-healing
           try {
             await this.handlePopupsAndModals(page);
@@ -244,28 +284,30 @@ class TestExecutor {
             // Self-healing failed
           }
         }
-        
+
         const executionTime = Date.now() - startTime;
-        
+
         results.push({
           browser: browserInfo.type,
           status,
           executionTime,
-          errorDetails
+          errorDetails,
+          screenshots
         });
-        
+
         await context.close();
-        
+
       } catch (error) {
         results.push({
           browser: browserInfo.type,
           status: 'failed',
           executionTime: 0,
-          errorDetails: error.message
+          errorDetails: error.message,
+          screenshots: []
         });
       }
     }
-    
+
     return results;
   }
 

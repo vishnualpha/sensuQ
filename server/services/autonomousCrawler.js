@@ -9,10 +9,11 @@ const { pool } = require('../config/database');
  * Autonomous crawler that uses vision LLM to identify and interact with elements
  */
 class AutonomousCrawler {
-  constructor(testRunId, testConfig, llmConfig) {
+  constructor(testRunId, testConfig, llmConfig, io = null) {
     this.testRunId = testRunId;
     this.testConfig = testConfig;
     this.llmConfig = llmConfig;
+    this.io = io;
     this.visionIdentifier = new VisionElementIdentifier(llmConfig);
     this.pageTestGenerator = new PageLevelTestGenerator(llmConfig);
     this.flowTestGenerator = new FlowLevelTestGenerator(llmConfig);
@@ -129,6 +130,17 @@ class AutonomousCrawler {
 
       this.visitedUrls.add(url);
       this.pagesDiscovered++;
+
+      // Emit progress update via socket.io
+      if (this.io) {
+        this.io.emit('crawl:progress', {
+          testRunId: this.testRunId,
+          pagesDiscovered: this.pagesDiscovered,
+          maxPages: this.testConfig.max_pages,
+          currentUrl: url,
+          depth: depth
+        });
+      }
 
       // Capture page data
       const screenshot = await this.page.screenshot({ fullPage: false });
