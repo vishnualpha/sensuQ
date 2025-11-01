@@ -833,7 +833,7 @@ export default function TestRunDetails() {
                   </div>
                   
                   {/* Test Selection Controls */}
-                  {testRun.status === 'ready_for_execution' && (
+                  {testRun.status === 'completed' && (
                     <div className="flex items-center justify-between mb-4 p-3 bg-blue-50 rounded-lg">
                       <div className="flex items-center space-x-4">
                         <span className="text-sm font-medium text-blue-900">
@@ -869,7 +869,7 @@ export default function TestRunDetails() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           {/* Test Selection Checkbox */}
-                          {testRun.status === 'ready_for_execution' && (
+                          {testRun.status === 'completed' && (
                             <div className="flex items-center mb-2">
                               <input
                                 type="checkbox"
