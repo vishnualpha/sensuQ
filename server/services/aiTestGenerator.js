@@ -336,8 +336,7 @@ Use realistic test data and consider different user personas and scenarios.
 
   generateFallbackFlowTestCases(pageGroup) {
     const testCases = [];
-    
-    // Generate a flow test if multiple pages
+
     if (pageGroup.length > 1) {
       testCases.push({
         type: 'flow',
@@ -365,7 +364,6 @@ Use realistic test data and consider different user personas and scenarios.
         ]
       });
     } else {
-      // Single page flow test
       const page = pageGroup[0];
       testCases.push({
         type: 'functional',
@@ -405,8 +403,81 @@ Use realistic test data and consider different user personas and scenarios.
         ]
       });
     }
-    
+
     return testCases;
+  }
+
+  generateRealisticTestDataExamples() {
+    const businessContext = (this.config.business_context || '').toLowerCase();
+
+    if (businessContext.includes('ecommerce') || businessContext.includes('shop')) {
+      return `
+- Product searches: "laptop", "iPhone 15", "wireless headphones", "running shoes"
+- Product filters: "price under $500", "4+ star rating", "free shipping"
+- User accounts: test.buyer@example.com, password: TestBuyer123
+- Checkout data: John Doe, 123 Main St, New York, NY 10001, 4111111111111111
+`;
+    }
+
+    if (businessContext.includes('travel') || businessContext.includes('flight') || businessContext.includes('hotel')) {
+      return `
+- Destinations: "New York", "Los Angeles", "Paris", "Tokyo"
+- Dates: "2024-12-25" to "2024-12-30"
+- Travelers: 2 adults, 1 child
+- User accounts: traveler@example.com, password: Traveler123
+`;
+    }
+
+    if (businessContext.includes('real estate') || businessContext.includes('property')) {
+      return `
+- Locations: "San Francisco", "Manhattan", "Downtown Seattle"
+- Price range: "$500,000 - $1,000,000"
+- Property type: "Condo", "Single Family Home", "Townhouse"
+- Bedrooms: 2-3, Bathrooms: 2+
+`;
+    }
+
+    if (businessContext.includes('crm') || businessContext.includes('customer')) {
+      return `
+- Customer names: "John Smith", "Jane Doe", "Acme Corporation"
+- Contact info: john.smith@company.com, +1-555-123-4567
+- Search queries: "customers in California", "deals closed this month"
+- Company data: Acme Corp, 100 employees, Technology sector
+`;
+    }
+
+    return `
+- Generic searches: "test search query", "sample data"
+- User accounts: test.user@example.com, password: Test123
+- Form data: John Doe, john@example.com, +1-555-123-4567
+- Dates: current date + 7 days, current date + 30 days
+`;
+  }
+
+  generateUserJourneyExamples() {
+    const businessContext = (this.config.business_context || '').toLowerCase();
+
+    if (businessContext.includes('ecommerce') || businessContext.includes('shop')) {
+      return `
+- Browse → Search "laptop" → Filter by price → View product details → Add to cart → Checkout
+- Register account → Browse categories → Add multiple items → Apply coupon → Complete purchase
+- Guest checkout → Product search → Quick buy → Payment → Order confirmation
+`;
+    }
+
+    if (businessContext.includes('travel')) {
+      return `
+- Search flights → Select dates → Choose departure/return → Review price → Add baggage → Payment
+- Hotel search → Filter by amenities → Compare options → Book room → Confirmation email
+- Multi-city trip → Flight + hotel bundle → Loyalty points → Complete booking
+`;
+    }
+
+    return `
+- Homepage → Login → Dashboard → Perform main task → View results → Logout
+- Browse → Search → Filter → Select item → Action → Confirmation
+- Registration → Email verification → Profile setup → First use → Success
+`;
   }
 }
 
