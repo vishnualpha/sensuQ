@@ -88,7 +88,7 @@ class PlaywrightCrawler {
       type: chromium,
       name: 'chromium',
       options: {
-        headless: true,
+        headless: false,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -96,7 +96,9 @@ class PlaywrightCrawler {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor'
         ]
       }
     };
