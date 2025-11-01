@@ -113,55 +113,99 @@ class IntelligentInteractionHandler {
 
   async performKeyInteractions(page, analysis) {
     const interactions = analysis.keyInteractions || [];
+
+    logger.info(`\n========== KEY INTERACTIONS ANALYSIS ==========`);
+    logger.info(`Total interactions suggested by LLM: ${interactions.length}`);
+    logger.info(`Full interactions data: ${JSON.stringify(interactions, null, 2)}`);
+
     const highPriorityInteractions = interactions.filter(i => i.priority === 'high');
     const interactionsToPerform = highPriorityInteractions.length > 0
       ? highPriorityInteractions
       : interactions.slice(0, 3);
 
-    logger.info(`Performing ${interactionsToPerform.length} key interactions`);
+    logger.info(`High priority interactions: ${highPriorityInteractions.length}`);
+    logger.info(`Will perform ${interactionsToPerform.length} interactions`);
+
+    let successCount = 0;
+    let failCount = 0;
 
     for (const interaction of interactionsToPerform) {
       try {
+        logger.info(`\n--- Attempting interaction ${successCount + failCount + 1}/${interactionsToPerform.length} ---`);
+        logger.info(`Type: ${interaction.type}, Selector: ${interaction.selector}`);
+        logger.info(`Description: ${interaction.description}`);
+
         const success = await this.executeInteraction(page, interaction);
         if (success) {
+          successCount++;
+          logger.info(`✅ Interaction succeeded`);
           await page.waitForTimeout(2000);
+        } else {
+          failCount++;
+          logger.warn(`❌ Interaction failed (returned false)`);
         }
       } catch (error) {
-        logger.warn(`Interaction failed: ${interaction.description} - ${error.message}`);
+        failCount++;
+        logger.warn(`❌ Interaction exception: ${interaction.description} - ${error.message}`);
       }
     }
+
+    logger.info(`\n========== INTERACTIONS SUMMARY ==========`);
+    logger.info(`Successful: ${successCount}, Failed: ${failCount}, Total: ${interactionsToPerform.length}`);
   }
 
   async executeInteraction(page, interaction) {
     const { type, selector, value, description } = interaction;
     logger.info(`Executing ${type} interaction: ${description}`);
+    logger.info(`Selector: ${selector}`);
 
     try {
-      await page.waitForSelector(selector, { timeout: 5000, state: 'visible' }).catch(() => null);
+      const elementExists = await page.locator(selector).count();
+      logger.info(`Elements matching selector: ${elementExists}`);
+
+      if (elementExists === 0) {
+        logger.warn(`No elements found for selector: ${selector}`);
+        return false;
+      }
+
+      const element = page.locator(selector).first();
+      const isVisible = await element.isVisible().catch(() => false);
+      logger.info(`Element visible: ${isVisible}`);
+
+      if (!isVisible) {
+        logger.warn(`Element exists but not visible: ${selector}`);
+        const isHidden = await element.isHidden().catch(() => true);
+        if (isHidden) {
+          logger.warn(`Element is hidden, attempting to scroll into view`);
+          await element.scrollIntoViewIfNeeded().catch(() => {});
+        }
+      }
 
       switch (type) {
         case 'click':
-          await page.click(selector, { timeout: 5000 });
-          logger.info(`Clicked: ${selector}`);
+          await element.click({ timeout: 5000 });
+          logger.info(`✅ Successfully clicked: ${selector}`);
           return true;
 
         case 'fill':
           const fillValue = value || this.generateContextualValue(interaction, selector);
-          await page.fill(selector, fillValue, { timeout: 5000 });
-          logger.info(`Filled ${selector} with: ${fillValue}`);
+          await element.fill(fillValue, { timeout: 5000 });
+          logger.info(`✅ Successfully filled ${selector} with: ${fillValue}`);
           return true;
 
         case 'select':
           if (value) {
-            await page.selectOption(selector, value, { timeout: 5000 });
-            logger.info(`Selected ${value} in: ${selector}`);
+            await element.selectOption(value, { timeout: 5000 });
+            logger.info(`✅ Successfully selected ${value} in: ${selector}`);
             return true;
+          } else {
+            logger.warn(`No value provided for select interaction`);
+            return false;
           }
-          break;
 
         case 'submit':
-          await page.click(selector, { timeout: 5000 });
-          logger.info(`Submitted form: ${selector}`);
+          await element.click({ timeout: 5000 });
+          logger.info(`✅ Successfully submitted form: ${selector}`);
           await page.waitForTimeout(3000);
           return true;
 
@@ -170,7 +214,9 @@ class IntelligentInteractionHandler {
           return false;
       }
     } catch (error) {
-      logger.warn(`Failed to execute ${type} on ${selector}: ${error.message}`);
+      logger.error(`❌ Failed to execute ${type} on ${selector}`);
+      logger.error(`Error: ${error.message}`);
+      logger.error(`Stack: ${error.stack}`);
       return false;
     }
   }
