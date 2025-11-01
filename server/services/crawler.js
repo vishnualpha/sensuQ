@@ -138,12 +138,18 @@ class PlaywrightCrawler {
     const page = await context.newPage();
 
     while (this.crawlStrategy.hasMoreWork() && !this.shouldStopCrawling) {
+      logger.info(`\n========== CRAWLER LOOP ITERATION ==========`);
+      logger.info(`Queue has work: ${this.crawlStrategy.hasMoreWork()}`);
+      logger.info(`Should stop crawling: ${this.shouldStopCrawling}`);
+
       const task = this.crawlStrategy.getNextTask();
 
       if (!task) {
-        logger.info('No more tasks in queue');
+        logger.info('No more tasks in queue - STOPPING');
         break;
       }
+
+      logger.info(`Processing task: ${task.url}`);
 
       try {
         await this.crawlPageIntelligently(page, task);
@@ -152,6 +158,8 @@ class PlaywrightCrawler {
       }
 
       const stats = this.crawlStrategy.getStats();
+      logger.info(`After crawl - Stats: crawled=${stats.crawled}, pending=${stats.pending}, maxPages=${stats.maxPages}`);
+
       const progress = Math.min(stats.progress * 0.4, 40);
       this.emitProgress(
         `Intelligently crawled ${stats.crawled}/${stats.maxPages} pages (${stats.pending} in queue)`,
@@ -159,6 +167,9 @@ class PlaywrightCrawler {
         'crawling'
       );
     }
+
+    logger.info(`\n========== CRAWLER LOOP ENDED ==========`);
+    logger.info(`Final reason: hasMoreWork=${this.crawlStrategy.hasMoreWork()}, shouldStop=${this.shouldStopCrawling}`);
 
     await context.close();
     logger.info('Intelligent crawl completed');

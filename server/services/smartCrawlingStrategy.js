@@ -93,13 +93,23 @@ class SmartCrawlingStrategy {
   }
 
   addTask(url, priority = 5, depth = 0, source = 'manual', reason = 'Initial crawl') {
+    logger.info(`\n=== ATTEMPTING TO ADD TASK ===`);
+    logger.info(`Original URL: ${url}`);
+    logger.info(`Priority: ${priority}, Depth: ${depth}, Source: ${source}`);
+    logger.info(`Reason: ${reason}`);
+
     if (!this.shouldCrawlUrl(url, depth)) {
+      logger.info(`REJECTED by shouldCrawlUrl check`);
       return false;
     }
 
     const normalizedUrl = this.normalizeUrl(url);
+    logger.info(`Normalized URL: ${normalizedUrl}`);
+    logger.info(`Already visited? ${this.visited.has(normalizedUrl)}`);
+    logger.info(`Visited set contains: [${Array.from(this.visited).join(', ')}]`);
+
     if (this.visited.has(normalizedUrl)) {
-      logger.info(`Rejecting URL (already in visited set after addTask normalization): ${normalizedUrl}`);
+      logger.info(`REJECTED: Already in visited set`);
       return false;
     }
 
@@ -107,7 +117,7 @@ class SmartCrawlingStrategy {
     this.priorityQueue.push(task);
     this.sortQueue();
 
-    logger.info(`✓ Added crawl task: ${normalizedUrl} (priority: ${priority}, depth: ${depth}, reason: ${reason})`);
+    logger.info(`✅ SUCCESS: Added to queue. Queue length now: ${this.priorityQueue.length}`);
     return true;
   }
 
