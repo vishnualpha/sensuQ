@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../config/database');
-const { PlaywrightCrawler } = require('../services/crawler');
+const { AutonomousCrawler } = require('../services/autonomousCrawler');
 
 const router = express.Router();
 
@@ -25,21 +25,43 @@ router.post('/start', async (req, res) => {
       return res.status(404).json({ error: 'Test configuration not found' });
     }
 
-    const config = configResult.rows[0];
+    const testConfig = {
+      target_url: configResult.rows[0].target_url,
+      max_depth: configResult.rows[0].max_depth || 3,
+      max_pages: configResult.rows[0].max_pages || 50,
+      credentials: configResult.rows[0].credentials
+    };
+
+    const llmConfig = {
+      provider: configResult.rows[0].provider,
+      api_key: configResult.rows[0].api_key,
+      api_url: configResult.rows[0].api_url,
+      model_name: configResult.rows[0].model_name
+    };
 
     // Create test run
     const runResult = await pool.query(`
       INSERT INTO test_runs (test_config_id, status, created_by)
-      VALUES ($1, 'pending', $2)
+      VALUES ($1, 'running', $2)
       RETURNING id
     `, [testConfigId, req.user.id]);
 
     const testRunId = runResult.rows[0].id;
 
-    // Start crawler
-    const crawler = new PlaywrightCrawler(config, testRunId, req.io);
+    // Start autonomous crawler
+    const crawler = new AutonomousCrawler(testRunId, testConfig, llmConfig);
     global.activeCrawlers.set(testRunId, crawler);
-    crawler.start();
+
+    // Start crawling in background
+    crawler.start().catch(error => {
+      console.error(`Crawler error for test run ${testRunId}:`, error);
+      pool.query(`
+        UPDATE test_runs
+        SET status = 'failed', error_message = $1, end_time = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `, [error.message, testRunId]);
+      global.activeCrawlers.delete(testRunId);
+    });
 
     res.json({ 
       message: 'Crawling started successfully',
@@ -81,60 +103,20 @@ router.post('/stop/:testRunId', async (req, res) => {
 
     const crawler = global.activeCrawlers.get(parseInt(testRunId));
     if (crawler) {
-      await crawler.stopCrawlingAndGenerateTests();
-      res.json({ message: 'Crawling stopped and test generation started' });
-    } else {
-      res.status(404).json({ error: 'Active crawler not found' });
+      await crawler.cleanup();
+      global.activeCrawlers.delete(parseInt(testRunId));
     }
-  } catch (error) {
-    console.error('Error stopping crawler:', error);
-    res.status(500).json({ error: 'Failed to stop crawling' });
-  }
-});
 
-// Stop crawling and generate tests
-router.post('/stop-and-generate/:testRunId', async (req, res) => {
-  try {
-    const { testRunId } = req.params;
-
-    // Check if test run exists and belongs to user
-    const runResult = await pool.query(`
-      SELECT status FROM test_runs 
+    await pool.query(`
+      UPDATE test_runs
+      SET status = 'completed', end_time = CURRENT_TIMESTAMP
       WHERE id = $1 AND created_by = $2
     `, [testRunId, req.user.id]);
 
-    if (runResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Test run not found' });
-    }
-
-    const testRun = runResult.rows[0];
-    
-    if (testRun.status !== 'running') {
-      return res.status(400).json({ error: 'Test run is not currently running' });
-    }
-
-    const crawler = global.activeCrawlers.get(parseInt(testRunId));
-    if (crawler && crawler.isRunning) {
-      try {
-        await crawler.stopCrawlingAndGenerateTests();
-        res.json({ message: 'Crawling stopped and test generation started' });
-      } catch (error) {
-        console.error('Error stopping crawler:', error);
-        res.status(500).json({ error: 'Failed to stop crawling and generate tests' });
-      }
-    } else {
-      // If crawler is not found but test run is running, mark it as completed
-      await pool.query(`
-        UPDATE test_runs 
-        SET status = 'completed', end_time = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [testRunId]);
-      
-      res.json({ message: 'Test run marked as completed' });
-    }
+    res.json({ message: 'Crawling stopped successfully' });
   } catch (error) {
-    console.error('Error stopping crawler and generating tests:', error);
-    res.status(500).json({ error: 'Failed to stop crawling and generate tests' });
+    console.error('Error stopping crawler:', error);
+    res.status(500).json({ error: 'Failed to stop crawling' });
   }
 });
 
