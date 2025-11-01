@@ -260,15 +260,27 @@ export default function TestRunDetails() {
   };
 
   const handleRunTests = async () => {
-    if (!testRun || selectedTestCases.length === 0) return;
-    
+    if (!testRun || selectedTestCases.length === 0) {
+      alert('Please select at least one test case to run');
+      return;
+    }
+
     setRunningTests(true);
     try {
-      await crawlerAPI.executeTests(testRun.id, selectedTestCases, executionName || 'Manual Execution');
+      const response = await crawlerAPI.executeTestsWithName(
+        testRun.id,
+        selectedTestCases,
+        executionName || 'Manual Execution'
+      );
+      console.log('Test execution started:', response.data);
+      alert(`Test execution started successfully! Running ${selectedTestCases.length} test(s).`);
+
       // Refresh execution history after starting new execution
       setTimeout(() => fetchExecutionHistory(testRun.id), 1000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error running tests:', error);
+      const errorMsg = error.response?.data?.error || error.message || 'Failed to start test execution';
+      alert(`Error: ${errorMsg}`);
     } finally {
       setRunningTests(false);
       setExecutionName('');
@@ -745,16 +757,76 @@ export default function TestRunDetails() {
                           Performance ({testTypeCounts.performance})
                         </button>
                       )}
+                      {testTypeCounts.validation > 0 && (
+                        <button
+                          onClick={() => setTestTypeFilter('validation')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'validation'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-gray-100 text-gray-600 hover:bg-yellow-100 hover:text-yellow-800'
+                          }`}
+                        >
+                          Validation ({testTypeCounts.validation})
+                        </button>
+                      )}
+                      {testTypeCounts.security > 0 && (
+                        <button
+                          onClick={() => setTestTypeFilter('security')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'security'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-800'
+                          }`}
+                        >
+                          Security ({testTypeCounts.security})
+                        </button>
+                      )}
                       {testTypeCounts.flow > 0 && (
-                        <button 
+                        <button
                           onClick={() => setTestTypeFilter('flow')}
                           className={`px-3 py-1 text-xs rounded-full ${
-                            testTypeFilter === 'flow' 
-                              ? 'bg-indigo-100 text-indigo-800' 
-                              : 'bg-gray-100 text-gray-600 hover:bg-indigo-100 hover:text-indigo-800'
+                            testTypeFilter === 'flow'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-800'
                           }`}
                         >
                           Flow ({testTypeCounts.flow})
+                        </button>
+                      )}
+                      {(testTypeCounts['page-load'] || 0) > 0 && (
+                        <button
+                          onClick={() => setTestTypeFilter('page-load')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'page-load'
+                              ? 'bg-cyan-100 text-cyan-800'
+                              : 'bg-gray-100 text-gray-600 hover:bg-cyan-100 hover:text-cyan-800'
+                          }`}
+                        >
+                          Page Load ({testTypeCounts['page-load']})
+                        </button>
+                      )}
+                      {(testTypeCounts['visual-regression'] || 0) > 0 && (
+                        <button
+                          onClick={() => setTestTypeFilter('visual-regression')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'visual-regression'
+                              ? 'bg-pink-100 text-pink-800'
+                              : 'bg-gray-100 text-gray-600 hover:bg-pink-100 hover:text-pink-800'
+                          }`}
+                        >
+                          Visual ({testTypeCounts['visual-regression']})
+                        </button>
+                      )}
+                      {(testTypeCounts['element-interaction'] || 0) > 0 && (
+                        <button
+                          onClick={() => setTestTypeFilter('element-interaction')}
+                          className={`px-3 py-1 text-xs rounded-full ${
+                            testTypeFilter === 'element-interaction'
+                              ? 'bg-teal-100 text-teal-800'
+                              : 'bg-gray-100 text-gray-600 hover:bg-teal-100 hover:text-teal-800'
+                          }`}
+                        >
+                          Element ({testTypeCounts['element-interaction']})
                         </button>
                       )}
                     </div>

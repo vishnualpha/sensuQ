@@ -105,9 +105,14 @@ export default function TestConfigurations() {
     if (window.confirm('Are you sure you want to delete this configuration?')) {
       try {
         await configAPI.deleteTestConfig(id);
+        setMessage('Configuration deleted successfully');
+        setTimeout(() => setMessage(''), 3000);
         fetchConfigurations();
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error deleting configuration:', error);
+        const errorMsg = error.response?.data?.error || error.message || 'Failed to delete configuration';
+        setMessage(`Error: ${errorMsg}`);
+        setTimeout(() => setMessage(''), 5000);
       }
     }
   };
