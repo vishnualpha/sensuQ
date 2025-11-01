@@ -1,6 +1,6 @@
 const logger = require('../utils/logger');
 const { AITestGenerator } = require('./aiTestGenerator');
-const db = require('../config/database');
+const { pool } = require('../config/database');
 
 /**
  * Generate page-level tests for discovered pages
@@ -326,7 +326,7 @@ ${stepsCode}
    * Save test case to database
    */
   async saveTestCase(testRunId, pageId, test) {
-    await db.query(
+    await pool.query(
       `INSERT INTO test_cases (test_run_id, page_id, test_type, test_name, test_description, test_steps, expected_result, test_level, playwright_code, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')`,
       [

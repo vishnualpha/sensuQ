@@ -3,7 +3,7 @@ const logger = require('../utils/logger');
 const { VisionElementIdentifier } = require('./visionElementIdentifier');
 const { PageLevelTestGenerator } = require('./pageLevelTestGenerator');
 const { FlowLevelTestGenerator } = require('./flowLevelTestGenerator');
-const db = require('../config/database');
+const { pool } = require('../config/database');
 
 /**
  * Autonomous crawler that uses vision LLM to identify and interact with elements
@@ -104,8 +104,27 @@ class AutonomousCrawler {
     try {
       logger.info(`Crawling page (depth ${depth}): ${url}`);
 
-      // Navigate to page
-      await this.page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+      // Navigate to page with retries
+      let navigationSuccess = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await this.page.goto(url, {
+            waitUntil: 'domcontentloaded',
+            timeout: 45000
+          });
+          navigationSuccess = true;
+          break;
+        } catch (navError) {
+          logger.warn(`Navigation attempt ${attempt + 1} failed: ${navError.message}`);
+          if (attempt === 1) throw navError;
+          await this.page.waitForTimeout(2000);
+        }
+      }
+
+      if (!navigationSuccess) {
+        throw new Error('Failed to navigate after retries');
+      }
+
       await this.page.waitForTimeout(2000); // Wait for dynamic content
 
       this.visitedUrls.add(url);
@@ -187,9 +206,14 @@ class AutonomousCrawler {
     } catch (error) {
       logger.error(`Error crawling page ${url}: ${error.message}`);
 
-      // If we can't navigate or page fails, try restarting browser
-      if (error.message.includes('Navigation') || error.message.includes('timeout')) {
-        await this.restartBrowserForNewPath();
+      // If we can't navigate or page fails, skip and continue
+      if (error.message.includes('Timeout') || error.message.includes('Navigation')) {
+        logger.warn(`Skipping page due to timeout/navigation error: ${url}`);
+        // Don't restart browser on first page, just mark as failed and continue
+        if (depth === 0) {
+          logger.error('Cannot load base URL, stopping crawl');
+          throw error;
+        }
       }
     }
   }
@@ -312,7 +336,7 @@ class AutonomousCrawler {
     // In production, save screenshot to file system or cloud storage
     // For now, we'll store base64 in a separate field
 
-    const result = await db.query(
+    const result = await pool.query(
       `INSERT INTO discovered_pages (test_run_id, url, title, screen_name, page_type, elements_count, screenshot_path, page_source, crawl_depth)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
@@ -327,7 +351,7 @@ class AutonomousCrawler {
    */
   async saveInteractiveElements(pageId, elements) {
     for (const element of elements) {
-      await db.query(
+      await pool.query(
         `INSERT INTO page_interactive_elements (page_id, element_type, selector, text_content, attributes, interaction_priority, identified_by, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
@@ -350,7 +374,7 @@ class AutonomousCrawler {
   async saveCrawlPath(fromPageId, toPageId, interactionElementId, depth) {
     this.pathSequence++;
 
-    await db.query(
+    await pool.query(
       `INSERT INTO crawl_paths (test_run_id, from_page_id, to_page_id, interaction_element_id, interaction_type, path_sequence, depth_level)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (test_run_id, from_page_id, to_page_id, interaction_element_id) DO NOTHING`,
@@ -362,7 +386,7 @@ class AutonomousCrawler {
    * Mark page as dead-end
    */
   async markPageAsDeadEnd(pageId) {
-    await db.query(
+    await pool.query(
       `UPDATE crawl_paths SET is_dead_end = true WHERE to_page_id = $1`,
       [pageId]
     );
@@ -372,7 +396,7 @@ class AutonomousCrawler {
    * Get element ID by selector
    */
   async getElementIdBySelector(pageId, selector) {
-    const result = await db.query(
+    const result = await pool.query(
       `SELECT id FROM page_interactive_elements WHERE page_id = $1 AND selector = $2 LIMIT 1`,
       [pageId, selector]
     );
@@ -384,7 +408,7 @@ class AutonomousCrawler {
    * Get unexplored paths
    */
   async getUnexploredPaths() {
-    const result = await db.query(
+    const result = await pool.query(
       `SELECT DISTINCT pie.id, pie.selector, dp.url
        FROM page_interactive_elements pie
        JOIN discovered_pages dp ON dp.id = pie.page_id
@@ -415,7 +439,7 @@ class AutonomousCrawler {
    * Update test run statistics
    */
   async updateTestRunStats() {
-    await db.query(
+    await pool.query(
       `UPDATE test_runs
        SET total_pages_discovered = $1, status = 'completed', end_time = CURRENT_TIMESTAMP
        WHERE id = $2`,

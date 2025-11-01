@@ -1,6 +1,6 @@
 const logger = require('../utils/logger');
 const { AITestGenerator } = require('./aiTestGenerator');
-const db = require('../config/database');
+const { pool } = require('../config/database');
 
 /**
  * Generate flow-level tests by analyzing crawl paths and user journeys
@@ -65,7 +65,7 @@ class FlowLevelTestGenerator {
    * Get crawl paths from database
    */
   async getCrawlPaths(testRunId) {
-    const result = await db.query(
+    const result = await pool.query(
       `SELECT cp.*,
               from_page.url as from_url, from_page.screen_name as from_screen_name,
               to_page.url as to_url, to_page.screen_name as to_screen_name,
@@ -86,7 +86,7 @@ class FlowLevelTestGenerator {
    * Get discovered pages from database
    */
   async getDiscoveredPages(testRunId) {
-    const result = await db.query(
+    const result = await pool.query(
       `SELECT dp.*,
               (SELECT json_agg(pie.*)
                FROM page_interactive_elements pie
@@ -283,7 +283,7 @@ RESPOND ONLY WITH VALID JSON:
    * Save user flow to database
    */
   async saveUserFlow(testRunId, flow) {
-    const result = await db.query(
+    const result = await pool.query(
       `INSERT INTO user_flows (test_run_id, flow_name, flow_description, flow_type, page_sequence, interaction_sequence, business_value, estimated_coverage_impact)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id`,
@@ -320,7 +320,7 @@ RESPOND ONLY WITH VALID JSON:
 
     const playwrightCode = this.generateFlowPlaywrightCode(flow);
 
-    await db.query(
+    await pool.query(
       `INSERT INTO test_cases (test_run_id, flow_id, test_type, test_name, test_description, test_steps, expected_result, test_level, playwright_code, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')`,
       [
