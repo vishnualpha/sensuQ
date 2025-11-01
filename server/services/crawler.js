@@ -183,7 +183,20 @@ class PlaywrightCrawler {
 
       await page.waitForTimeout(1000);
 
+      const urlBeforeInteractions = page.url();
+      logger.info(`URL before interactions: ${urlBeforeInteractions}`);
+
       await this.interactionHandler.performKeyInteractions(page, analysis);
+
+      await page.waitForTimeout(2000);
+
+      const urlAfterInteractions = page.url();
+      logger.info(`URL after interactions: ${urlAfterInteractions}`);
+
+      if (urlAfterInteractions !== urlBeforeInteractions && urlAfterInteractions !== task.url) {
+        logger.info(`Interactions led to new page: ${urlAfterInteractions}`);
+        this.crawlStrategy.addTask(urlAfterInteractions, 8, task.depth + 1, 'interaction', 'Discovered through page interaction');
+      }
 
       const title = await page.title();
       const pageElements = await this.pageAnalyzer.extractPageContext(page);
@@ -263,11 +276,22 @@ class PlaywrightCrawler {
       const addedFromAnalysis = this.crawlStrategy.addLinksFromAnalysis(analysis, task.url, task.depth);
       logger.info(`Added ${addedFromAnalysis} links from LLM analysis`);
 
-      const pageLinks = await this.interactionHandler.extractLinks(page);
-      logger.info(`Extracted ${pageLinks.length} total links from page`);
+      const pageLinksInitial = await this.interactionHandler.extractLinks(page);
+      logger.info(`Extracted ${pageLinksInitial.length} initial links from page`);
 
-      const addedFromPage = this.crawlStrategy.addLinksFromPage(pageLinks, task.url, task.depth);
-      logger.info(`Added ${addedFromPage} links from page extraction`);
+      const addedFromPageInitial = this.crawlStrategy.addLinksFromPage(pageLinksInitial, task.url, task.depth);
+      logger.info(`Added ${addedFromPageInitial} links from initial page extraction`);
+
+      await page.waitForTimeout(1000);
+
+      const pageLinksAfterInteractions = await this.interactionHandler.extractLinks(page);
+      logger.info(`Extracted ${pageLinksAfterInteractions.length} links after interactions`);
+
+      if (pageLinksAfterInteractions.length > pageLinksInitial.length) {
+        logger.info(`Found ${pageLinksAfterInteractions.length - pageLinksInitial.length} new links after interactions`);
+        const addedFromInteractions = this.crawlStrategy.addLinksFromPage(pageLinksAfterInteractions, task.url, task.depth);
+        logger.info(`Added ${addedFromInteractions} links discovered through interactions`);
+      }
 
     } catch (error) {
       logger.error(`Error in intelligent crawl of ${task.url}: ${error.message}`);
