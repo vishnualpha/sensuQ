@@ -5,9 +5,23 @@ const logger = require('../utils/logger');
 class AITestGenerator {
   constructor(config) {
     this.config = config;
-    this.apiKey = config.api_key ? decrypt(config.api_key) : null;
+
+    if (config.api_key) {
+      this.apiKey = decrypt(config.api_key);
+      if (!this.apiKey) {
+        logger.error('Failed to decrypt LLM API key - decryption returned null');
+      } else {
+        logger.info(`LLM API key decrypted successfully (length: ${this.apiKey.length})`);
+      }
+    } else {
+      this.apiKey = null;
+      logger.warn('No LLM API key provided in config');
+    }
+
     this.apiUrl = config.api_url || 'https://api.openai.com/v1/chat/completions';
     this.modelName = config.model_name || 'gpt-3.5-turbo';
+
+    logger.info(`AITestGenerator initialized: provider=${config.provider}, model=${this.modelName}, apiUrl=${this.apiUrl}, hasApiKey=${!!this.apiKey}`);
   }
 
   async generateTestCases(pageData) {
@@ -197,13 +211,15 @@ Use realistic test data and consider different user personas and scenarios.
   }
 
   async callLLM(prompt) {
+    if (!this.apiKey) {
+      logger.error('Cannot call LLM: API key is not set');
+      throw new Error('LLM API key not configured');
+    }
+
     const headers = {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${this.apiKey}`
     };
-
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
-    }
 
     const payload = {
       model: this.modelName,
@@ -221,12 +237,22 @@ Use realistic test data and consider different user personas and scenarios.
       temperature: this.config.temperature || 0.7
     };
 
-    const response = await axios.post(this.apiUrl, payload, { 
-      headers,
-      timeout: 30000 // 30 second timeout
-    });
-    
-    return response.data.choices[0].message.content;
+    try {
+      logger.info(`Calling LLM API: ${this.apiUrl} with model ${this.modelName}`);
+      const response = await axios.post(this.apiUrl, payload, {
+        headers,
+        timeout: 30000
+      });
+
+      return response.data.choices[0].message.content;
+    } catch (error) {
+      logger.error(`LLM API call failed: ${error.message}`);
+      if (error.response) {
+        logger.error(`Response status: ${error.response.status}`);
+        logger.error(`Response data: ${JSON.stringify(error.response.data)}`);
+      }
+      throw error;
+    }
   }
 
   parseTestCases(response) {
