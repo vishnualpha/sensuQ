@@ -198,6 +198,10 @@ class SmartCrawlingStrategy {
     let addedCount = 0;
     const nextDepth = currentDepth + 1;
 
+    logger.info(`=== Processing ${links.length} links from ${currentUrl} (depth ${currentDepth}) ===`);
+    logger.info(`Current visited set size: ${this.visited.size}`);
+    logger.info(`Visited URLs: ${Array.from(this.visited).join(', ')}`);
+
     for (const link of links.slice(0, 20)) {
       const linkUrl = this.resolveUrl(link.url || link.href, currentUrl);
 
