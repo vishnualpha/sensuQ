@@ -1,4 +1,5 @@
 const logger = require('../utils/logger');
+const promptLoader = require('../utils/promptLoader');
 
 class IntelligentPageAnalyzer {
   constructor(testGenerator, config) {
@@ -80,78 +81,23 @@ class IntelligentPageAnalyzer {
       return this.getFallbackAnalysisFromContext(pageContext, url);
     }
 
-    const businessContext = this.config.business_context || '';
-
-    const prompt = `
-You are an expert web crawler analyzing a web page to make intelligent decisions about:
-1. What content is visible and valuable
-2. What interactions would reveal more content
-3. What links/pages should be crawled next
-4. Priority of different elements for testing
-
-BUSINESS CONTEXT: ${businessContext}
-
-PAGE INFORMATION:
-- URL: ${url}
-- Title: ${pageContext.title}
-- Meta Description: ${pageContext.metaDescription}
-
-PAGE STRUCTURE:
-- Main headings: ${JSON.stringify(pageContext.headings.h1)}
-- Forms: ${pageContext.forms.length} found
-- Interactive elements: ${pageContext.buttons.length} buttons, ${pageContext.inputs.length} inputs
-- Navigation links: ${pageContext.links.length} links
-- Has login form: ${pageContext.hasLoginForm}
-- Has search form: ${pageContext.hasSearchForm}
-- Has multi-step form: ${pageContext.hasMultiStepForm}
-- Has modals: ${pageContext.hasModals}
-
-AVAILABLE LINKS (select from these):
-${JSON.stringify(pageContext.links.slice(0, 30), null, 2)}
-
-MAIN CONTENT PREVIEW:
-${pageContext.mainContent}
-
-Analyze the screenshot and page context to provide:
-
-IMPORTANT: For linksToFollow, select URLs from the AVAILABLE LINKS list above. Match the link text to find the correct URL.
-
-{
-  "pageType": "homepage|login|search-results|product-listing|product-detail|checkout|form|dashboard|profile|settings|article|other",
-  "pageValue": "high|medium|low - how valuable is this page for testing",
-  "priority": number 1-10 for crawling priority,
-  "businessRelevance": "Explain how this page relates to core business functionality",
-  "keyInteractions": [
-    {
-      "description": "What interaction to perform",
-      "selector": "CSS selector",
-      "type": "click|fill|select|submit",
-      "value": "value if needed",
-      "expectedOutcome": "What new content/page this reveals",
-      "priority": "high|medium|low"
-    }
-  ],
-  "linksToFollow": [
-    {
-      "text": "link text or button text",
-      "url": "full URL from the AVAILABLE LINKS list - MUST be an actual URL from the page",
-      "reason": "Why this link is valuable to follow",
-      "priority": "high|medium|low",
-      "estimatedPageType": "guess what type of page this leads to"
-    }
-  ],
-  "testingOpportunities": [
-    "List specific testing scenarios this page enables",
-    "Focus on functional, business-critical tests"
-  ],
-  "obstacles": [
-    "List any popups, modals, login walls, or obstacles to crawling"
-  ],
-  "recommendations": "Strategic recommendations for crawling this page effectively"
-}
-
-Return ONLY valid JSON.
-`;
+    const prompt = promptLoader.renderPrompt('page-analysis.txt', {
+      businessContext: this.config.business_context || '',
+      url: url,
+      title: pageContext.title,
+      metaDescription: pageContext.metaDescription,
+      headings: JSON.stringify(pageContext.headings.h1),
+      formsCount: pageContext.forms.length,
+      buttonsCount: pageContext.buttons.length,
+      inputsCount: pageContext.inputs.length,
+      linksCount: pageContext.links.length,
+      hasLoginForm: pageContext.hasLoginForm,
+      hasSearchForm: pageContext.hasSearchForm,
+      hasMultiStepForm: pageContext.hasMultiStepForm,
+      hasModals: pageContext.hasModals,
+      availableLinks: JSON.stringify(pageContext.links.slice(0, 30), null, 2),
+      mainContent: pageContext.mainContent
+    });
 
     try {
       const response = await this.testGenerator.callLLM(prompt);

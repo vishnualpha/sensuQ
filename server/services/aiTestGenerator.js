@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
+const promptLoader = require('../utils/promptLoader');
 
 class AITestGenerator {
   constructor(config) {
@@ -53,77 +54,17 @@ class AITestGenerator {
   }
 
   buildTestGenerationPrompt(pageData) {
-    const businessContext = this.config.business_context ? 
-      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}` : '';
-    
-    return `
-You are an expert QA engineer specializing in FUNCTIONAL TESTING and USER JOURNEY VALIDATION. Your primary goal is to create REALISTIC, BUSINESS-FOCUSED test cases that real users would perform.
-
-CURRENT PAGE ANALYSIS:
-- URL: ${pageData.url}
-- Title: ${pageData.title}
-- Interactive Elements: ${pageData.elementsCount}
-- Available Forms: ${JSON.stringify(pageData.elements?.forms || [], null, 2)}
-- Available Buttons: ${JSON.stringify(pageData.elements?.buttons || [], null, 2)}
-- Available Inputs: ${JSON.stringify(pageData.elements?.inputs || [], null, 2)}
-- Available Selects: ${JSON.stringify(pageData.elements?.selects || [], null, 2)}${businessContext}
-
-CRITICAL REQUIREMENTS:
-1. Generate ONLY FUNCTIONAL test cases that simulate real user interactions
-2. Use the business context to create REALISTIC scenarios that actual users would perform
-3. Focus on BUSINESS-CRITICAL workflows and user goals
-4. Create detailed test steps with SPECIFIC selectors and realistic test data
-5. Include CLEAR expected results and validation criteria
-6. Generate scenarios that drive business value and test core functionality
-
-FUNCTIONAL TEST FOCUS (100% of tests should be functional):
-- Form submissions with domain-specific realistic data
-- Search and filter operations with business-relevant queries
-- User registration and login workflows
-- Product/service selection and interaction flows
-- Data entry and validation with real-world scenarios
-- Navigation through multi-step business processes
-- Transaction and conversion workflows
-
-REALISTIC TEST DATA EXAMPLES BASED ON BUSINESS CONTEXT:
-${this.generateRealisticTestDataExamples()}
-
-EXPECTED VS ACTUAL RESULTS:
-- Expected Result: What should happen when the test steps are executed successfully
-- Actual Result: Will be populated during test execution with real browser results
-
-Return ONLY functional test cases in this exact JSON format:
-{
-  "testCases": [
-    {
-      "type": "functional",
-      "name": "Business-focused test case name that describes the user goal",
-      "description": "Detailed description of the business scenario and user intent",
-      "steps": [
-        {
-          "action": "navigate|click|fill|select|wait|assert|verify",
-          "selector": "specific CSS selector for the element",
-          "value": "realistic business-relevant test data",
-          "description": "Clear description of what this step does and why"
-        }
-      ],
-      "expectedResult": "Specific, measurable expected outcome that can be validated",
-      "priority": "high|medium|low",
-      "businessValue": "Clear explanation of why this test matters for business success",
-      "validationCriteria": [
-        "Specific criteria to validate success",
-        "Measurable outcomes to check",
-        "Error conditions to verify"
-      ]
-    }
-  ]
-}
-
-Generate 6-10 FUNCTIONAL test cases that represent real user goals and business workflows.
-Each test case must have clear expected results and validation criteria.
-Use realistic test data that matches the business domain and user personas.
-Focus on scenarios that drive business value and test critical functionality.
-`;
+    return promptLoader.renderPrompt('test-generation.txt', {
+      url: pageData.url,
+      title: pageData.title,
+      elementsCount: pageData.elementsCount,
+      forms: JSON.stringify(pageData.elements?.forms || [], null, 2),
+      buttons: JSON.stringify(pageData.elements?.buttons || [], null, 2),
+      inputs: JSON.stringify(pageData.elements?.inputs || [], null, 2),
+      selects: JSON.stringify(pageData.elements?.selects || [], null, 2),
+      businessContext: this.config.business_context || '',
+      testDataExamples: this.generateRealisticTestDataExamples()
+    });
   }
 
   buildFlowTestGenerationPrompt(pageGroup) {
@@ -138,76 +79,11 @@ Focus on scenarios that drive business value and test critical functionality.
       inputs: page.elements?.inputs || []
     }));
 
-    const businessContext = this.config.business_context ? 
-      `\n\nBUSINESS/APPLICATION CONTEXT:\n${this.config.business_context}` : '';
-    
-    return `
-You are an expert QA engineer specializing in END-TO-END USER JOURNEY TESTING. Your mission is to create COMPLETE, REALISTIC user workflows that span multiple pages and represent actual business processes.
-
-DISCOVERED PAGES FOR FLOW TESTING:
-${JSON.stringify(pageDetails, null, 2)}${businessContext}
-
-CRITICAL REQUIREMENTS FOR USER JOURNEY TESTS:
-1. Create COMPLETE end-to-end workflows that span multiple pages
-2. Use business context to design REALISTIC user journeys that customers actually follow
-3. Include specific navigation paths and data flow between pages
-4. Test BUSINESS-CRITICAL conversion paths and user goals
-5. Include both successful workflows and error/edge case scenarios
-6. Use realistic test data that matches the business domain
-7. Provide clear expected results for each step and the overall journey
-
-USER JOURNEY PRIORITIES:
-- Complete purchase/booking/application workflows
-- User registration → verification → first use flows
-- Search → filter → select → action workflows
-- Multi-step form completion across pages
-- Login → dashboard → perform task → logout flows
-- Error handling and recovery scenarios
-- Cross-page data validation and persistence
-
-REALISTIC USER JOURNEY EXAMPLES:
-${this.generateUserJourneyExamples()}
-
-EXPECTED VS ACTUAL RESULTS FOR JOURNEYS:
-- Expected Result: Complete description of successful journey outcome
-- Actual Result: Will be populated with real execution results across all pages
-
-Return user journey test cases in this exact JSON format:
-{
-  "testCases": [
-    {
-      "type": "flow",
-      "name": "Complete user journey name (e.g., 'Complete flight booking from search to confirmation')",
-      "description": "Detailed description of the end-to-end user journey and business value",
-      "steps": [
-        {
-          "action": "navigate|click|fill|select|wait|assert|verify",
-          "selector": "specific CSS selector",
-          "value": "realistic test data for this business domain",
-          "description": "Clear description of this step in the user journey",
-          "expectedOutcome": "Specific expected result for this step",
-          "pageUrl": "URL where this step should be performed"
-        }
-      ],
-      "expectedResult": "Complete description of successful journey outcome with specific success criteria",
-      "priority": "high|medium|low",
-      "flowType": "single-page|multi-page",
-      "businessValue": "Clear explanation of why this user journey is critical for business",
-      "userPersona": "Type of user who would follow this journey",
-      "validationCriteria": [
-        "Specific end-to-end success criteria",
-        "Data persistence validation points",
-        "User experience validation points"
-      ]
-    }
-  ]
-}
-
-Generate 4-8 comprehensive USER JOURNEY test cases that represent complete business workflows.
-Focus on multi-page flows that deliver real business value and test critical user paths.
-Each journey must have clear expected results and validation criteria.
-Use realistic test data and consider different user personas and scenarios.
-`;
+    return promptLoader.renderPrompt('flow-test-generation.txt', {
+      pageDetails: JSON.stringify(pageDetails, null, 2),
+      businessContext: this.config.business_context || '',
+      userJourneyExamples: this.generateUserJourneyExamples()
+    });
   }
 
   async callLLM(prompt) {
