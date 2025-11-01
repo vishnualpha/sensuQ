@@ -106,10 +106,15 @@ PAGE STRUCTURE:
 - Has multi-step form: ${pageContext.hasMultiStepForm}
 - Has modals: ${pageContext.hasModals}
 
+AVAILABLE LINKS (select from these):
+${JSON.stringify(pageContext.links.slice(0, 30), null, 2)}
+
 MAIN CONTENT PREVIEW:
 ${pageContext.mainContent}
 
 Analyze the screenshot and page context to provide:
+
+IMPORTANT: For linksToFollow, select URLs from the AVAILABLE LINKS list above. Match the link text to find the correct URL.
 
 {
   "pageType": "homepage|login|search-results|product-listing|product-detail|checkout|form|dashboard|profile|settings|article|other",
@@ -129,6 +134,7 @@ Analyze the screenshot and page context to provide:
   "linksToFollow": [
     {
       "text": "link text or button text",
+      "url": "full URL from the AVAILABLE LINKS list - MUST be an actual URL from the page",
       "reason": "Why this link is valuable to follow",
       "priority": "high|medium|low",
       "estimatedPageType": "guess what type of page this leads to"
@@ -150,6 +156,21 @@ Return ONLY valid JSON.
     try {
       const response = await this.testGenerator.callLLM(prompt);
       const analysis = JSON.parse(response);
+
+      if (analysis.linksToFollow && analysis.linksToFollow.length > 0) {
+        analysis.linksToFollow = analysis.linksToFollow.map(link => {
+          if (!link.url || link.url === '') {
+            const matchingLink = pageContext.links.find(l =>
+              l.text && link.text && l.text.toLowerCase().includes(link.text.toLowerCase())
+            );
+            if (matchingLink) {
+              link.url = matchingLink.attributes?.href || '';
+            }
+          }
+          return link;
+        }).filter(link => link.url && link.url !== '');
+      }
+
       return analysis;
     } catch (error) {
       logger.warn(`LLM analysis failed: ${error.message}`);
@@ -242,6 +263,7 @@ Return ONLY valid JSON.
   identifyValuableLinks(pageContext) {
     return pageContext.links.slice(0, 10).map(link => ({
       text: link.text,
+      url: link.attributes?.href || '',
       reason: 'Discovered navigation link',
       priority: 'medium',
       estimatedPageType: 'unknown'
