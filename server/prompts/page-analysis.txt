@@ -16,10 +16,14 @@ PAGE STRUCTURE:
 - Forms: {{formsCount}} found
 - Interactive elements: {{buttonsCount}} buttons, {{inputsCount}} inputs
 - Navigation links: {{linksCount}} links
+- Clickable elements: {{clickableElementsCount}} found (includes buttons, divs, spans with click handlers)
 - Has login form: {{hasLoginForm}}
 - Has search form: {{hasSearchForm}}
 - Has multi-step form: {{hasMultiStepForm}}
 - Has modals: {{hasModals}}
+
+CLICKABLE ELEMENTS ON PAGE (modern web apps often use divs/spans as buttons):
+{{clickableElements}}
 
 AVAILABLE LINKS (select from these):
 {{availableLinks}}
@@ -28,6 +32,14 @@ MAIN CONTENT PREVIEW:
 {{mainContent}}
 
 Analyze the screenshot and page context to provide:
+
+CRITICAL INSTRUCTIONS FOR KEY INTERACTIONS:
+1. Modern web applications use DIVs, SPANs, and other elements as clickable buttons
+2. Look at the CLICKABLE ELEMENTS list - these have click handlers or look like buttons
+3. You MUST identify at least 3-5 key interactions that could reveal new content or navigate to new pages
+4. Use the selectors provided in the CLICKABLE ELEMENTS list
+5. Focus on elements that look like navigation, cards, tiles, menu items, or call-to-action buttons
+6. Even if they're not traditional <button> or <a> tags, they should be clicked if they look interactive
 
 IMPORTANT: For linksToFollow, select URLs from the AVAILABLE LINKS list above. Match the link text to find the correct URL.
 

@@ -47,6 +47,87 @@ class IntelligentPageAnalyzer {
           }));
         };
 
+        const getClickableElements = () => {
+          const elements = [];
+          const selectors = [
+            'button',
+            'a[href]',
+            'input[type="submit"]',
+            'input[type="button"]',
+            '[role="button"]',
+            '[onclick]',
+            'div[class*="button"]',
+            'div[class*="btn"]',
+            'span[class*="button"]',
+            'span[class*="btn"]',
+            '[class*="clickable"]',
+            '[class*="interactive"]',
+            'div[tabindex]',
+            'span[tabindex]'
+          ];
+
+          const seen = new Set();
+
+          selectors.forEach(selector => {
+            try {
+              document.querySelectorAll(selector).forEach(el => {
+                if (seen.has(el)) return;
+
+                const rect = el.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
+
+                const style = window.getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden') return;
+
+                const text = el.textContent?.trim().substring(0, 100);
+                if (!text && !el.href) return;
+
+                seen.add(el);
+
+                let computedSelector;
+                if (el.id) {
+                  computedSelector = `#${el.id}`;
+                } else if (el.className && typeof el.className === 'string' && el.className.trim()) {
+                  const classes = el.className.trim().split(/\s+/).slice(0, 2);
+                  computedSelector = classes.map(c => `.${c}`).join('');
+                } else if (el.getAttribute('data-testid')) {
+                  computedSelector = `[data-testid="${el.getAttribute('data-testid')}"]`;
+                } else if (el.href) {
+                  computedSelector = `a[href="${el.getAttribute('href')}"]`;
+                } else {
+                  const xpath = [];
+                  let current = el;
+                  while (current && current !== document.body) {
+                    let index = 1;
+                    let sibling = current.previousElementSibling;
+                    while (sibling) {
+                      if (sibling.tagName === current.tagName) index++;
+                      sibling = sibling.previousElementSibling;
+                    }
+                    xpath.unshift(`${current.tagName.toLowerCase()}:nth-of-type(${index})`);
+                    current = current.parentElement;
+                    if (xpath.length >= 3) break;
+                  }
+                  computedSelector = xpath.join(' > ');
+                }
+
+                elements.push({
+                  tag: el.tagName.toLowerCase(),
+                  text: text,
+                  selector: computedSelector,
+                  href: el.href || null,
+                  hasClickHandler: el.onclick !== null || el.hasAttribute('onclick'),
+                  role: el.getAttribute('role'),
+                  ariaLabel: el.getAttribute('aria-label'),
+                  classes: el.className
+                });
+              });
+            } catch (e) {}
+          });
+
+          return elements.slice(0, 30);
+        };
+
         return {
           url: window.location.href,
           title: document.title,
@@ -59,6 +140,7 @@ class IntelligentPageAnalyzer {
           inputs: getElementInfo('input:not([type="hidden"])'),
           buttons: getElementInfo('button, input[type="submit"], input[type="button"]'),
           links: getElementInfo('a[href]').slice(0, 50),
+          clickableElements: getClickableElements(),
           selects: getElementInfo('select'),
           textareas: getElementInfo('textarea'),
           navElements: getElementInfo('nav, [role="navigation"]'),
@@ -91,6 +173,8 @@ class IntelligentPageAnalyzer {
       buttonsCount: pageContext.buttons.length,
       inputsCount: pageContext.inputs.length,
       linksCount: pageContext.links.length,
+      clickableElementsCount: pageContext.clickableElements?.length || 0,
+      clickableElements: JSON.stringify(pageContext.clickableElements || [], null, 2),
       hasLoginForm: pageContext.hasLoginForm,
       hasSearchForm: pageContext.hasSearchForm,
       hasMultiStepForm: pageContext.hasMultiStepForm,
