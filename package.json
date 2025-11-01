@@ -13,7 +13,6 @@
   "dependencies": {
     "@playwright/test": "^1.56.0",
     "react-router-dom": "^6.20.1",
-    "socket.io-client": "^4.7.4",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/crypto-js": "^4.2.2",

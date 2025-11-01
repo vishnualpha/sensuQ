@@ -78,7 +78,7 @@ class TestExecutor {
           try {
             logger.info('Retrying Chromium with minimal options...');
             const browser = await config.type.launch({ 
-              headless: true,
+              headless: false,
               args: ['--no-sandbox', '--disable-setuid-sandbox']
             });
             this.browsers.push({ type: config.name, browser });
