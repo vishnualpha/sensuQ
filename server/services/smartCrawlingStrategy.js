@@ -21,6 +21,8 @@ class SmartCrawlingStrategy {
     this.maxDepth = config.max_depth || 3;
     this.maxPages = config.max_pages || 50;
     this.crawledCount = 0;
+
+    logger.info(`SmartCrawlingStrategy initialized: startUrl=${startUrl}, domain=${this.domainWhitelist}, maxDepth=${this.maxDepth}, maxPages=${this.maxPages}`);
   }
 
   extractDomain(url) {
@@ -97,6 +99,7 @@ class SmartCrawlingStrategy {
 
     const normalizedUrl = this.normalizeUrl(url);
     if (this.visited.has(normalizedUrl)) {
+      logger.info(`Rejecting URL (already in visited set after addTask normalization): ${normalizedUrl}`);
       return false;
     }
 
@@ -104,7 +107,7 @@ class SmartCrawlingStrategy {
     this.priorityQueue.push(task);
     this.sortQueue();
 
-    logger.info(`Added crawl task: ${normalizedUrl} (priority: ${priority}, depth: ${depth}, reason: ${reason})`);
+    logger.info(`✓ Added crawl task: ${normalizedUrl} (priority: ${priority}, depth: ${depth}, reason: ${reason})`);
     return true;
   }
 
