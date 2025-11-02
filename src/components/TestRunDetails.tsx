@@ -155,6 +155,18 @@ interface TestRunDetails {
   testCases: any[];
 }
 
+const formatDuration = (ms: number): string => {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (minutes > 0) {
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+  return `${seconds}s`;
+};
+
 export default function TestRunDetails() {
   const { id } = useParams<{ id: string }>();
   const [testRun, setTestRun] = useState<TestRunDetails | null>(null);
@@ -726,8 +738,8 @@ export default function TestRunDetails() {
                         <div className="border-t p-4 bg-gray-50 space-y-3">
                           <h5 className="font-medium text-gray-900 mb-3">Test Case Results:</h5>
                           {details.testCaseResults && details.testCaseResults.map((testResult: any, idx: number) => (
-                            <div key={idx} className="bg-white rounded-lg p-3 border">
-                              <div className="flex items-center justify-between mb-2">
+                            <div key={idx} className="bg-white rounded-lg p-4 border">
+                              <div className="flex items-center justify-between mb-3">
                                 <div className="flex-1">
                                   <div className="flex items-center space-x-2">
                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${
@@ -743,9 +755,40 @@ export default function TestRunDetails() {
                                   <p className="text-sm text-gray-600 mt-1">{testResult.test_description}</p>
                                 </div>
                                 <div className="text-sm text-gray-500">
-                                  {testResult.execution_time}ms
+                                  {formatDuration(testResult.execution_time)}
                                 </div>
                               </div>
+
+                              {testResult.test_steps && testResult.test_steps.length > 0 && (
+                                <div className="mt-3 p-3 bg-gray-50 rounded">
+                                  <p className="text-sm font-medium text-gray-700 mb-2">Test Steps:</p>
+                                  <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
+                                    {testResult.test_steps.map((step: string, stepIdx: number) => (
+                                      <li key={stepIdx}>{step}</li>
+                                    ))}
+                                  </ol>
+                                </div>
+                              )}
+
+                              {testResult.expected_result && (
+                                <div className="mt-2 p-2 bg-blue-50 rounded text-sm">
+                                  <strong className="text-blue-900">Expected Result:</strong>
+                                  <p className="text-blue-800 mt-1">{testResult.expected_result}</p>
+                                </div>
+                              )}
+
+                              {testResult.actual_result && (
+                                <div className={`mt-2 p-2 rounded text-sm ${
+                                  testResult.status === 'failed' ? 'bg-red-50' : 'bg-green-50'
+                                }`}>
+                                  <strong className={testResult.status === 'failed' ? 'text-red-900' : 'text-green-900'}>
+                                    Actual Result:
+                                  </strong>
+                                  <p className={`mt-1 ${testResult.status === 'failed' ? 'text-red-800' : 'text-green-800'}`}>
+                                    {testResult.actual_result}
+                                  </p>
+                                </div>
+                              )}
 
                               {testResult.error_details && (
                                 <div className="mt-2 p-2 bg-red-50 rounded text-sm text-red-800">
