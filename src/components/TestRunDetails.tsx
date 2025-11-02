@@ -765,7 +765,14 @@ export default function TestRunDetails() {
                                   <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
                                     {testResult.test_steps.map((step: any, stepIdx: number) => (
                                       <li key={stepIdx}>
-                                        {typeof step === 'string' ? step : `${step.action}${step.target ? ` on ${step.target}` : ''}`}
+                                        {typeof step === 'string' ? step : (
+                                          <>
+                                            {step.description || `${step.action}${step.target ? ` on ${step.target}` : ''}`}
+                                            {step.selector && (
+                                              <span className="ml-2 text-xs font-mono text-gray-500">{step.selector}</span>
+                                            )}
+                                          </>
+                                        )}
                                       </li>
                                     ))}
                                   </ol>
