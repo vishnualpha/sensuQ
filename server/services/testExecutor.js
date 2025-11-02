@@ -138,6 +138,7 @@ class TestExecutor {
           
           // Execute test case across all browsers
           results = await this.executeTestCase({
+            id: testCase.id,
             name: testCase.test_name,
             description: testCase.test_description,
             steps: testSteps,
@@ -413,8 +414,19 @@ class TestExecutor {
   async smartClickWithRetry(page, selector, timeout) {
     const alternativeSelectors = await this.generateAlternativeSelectors(page, selector);
 
+    // If it's an aria-label selector, also try text-based matching
+    const ariaLabelMatch = selector.match(/aria-label\s*=\s*['"]([^'"]+)['"]/);
+    if (ariaLabelMatch) {
+      const labelText = ariaLabelMatch[1];
+      alternativeSelectors.push(`text=${labelText}`);
+      alternativeSelectors.push(`:has-text("${labelText}")`);
+    }
+
     for (const sel of alternativeSelectors) {
       try {
+        // Wait for element to be visible first
+        await page.waitForSelector(sel, { state: 'visible', timeout: 2000 }).catch(() => {});
+
         // Try standard click
         await page.click(sel, { timeout: timeout / 2 });
         logger.info(`Clicked: ${sel}`);
@@ -604,10 +616,17 @@ class TestExecutor {
         }
       }
 
-      // Try aria-label alternatives
-      const ariaMatch = originalSelector.match(/aria-label[*~]?="([^"]+)"/);
+      // Try aria-label alternatives (handle both single and double quotes)
+      const ariaMatch = originalSelector.match(/aria-label\s*[*~]?\s*=\s*['"]([^'"]+)['"]/);
       if (ariaMatch) {
-        selectors.push(`[aria-label*="${ariaMatch[1]}"]`);
+        const ariaValue = ariaMatch[1];
+        selectors.push(`[aria-label*="${ariaValue}"]`);
+        selectors.push(`[aria-label="${ariaValue}"]`);
+        // Also try just the tag with aria-label
+        const tagMatch = originalSelector.match(/^(\w+)\[/);
+        if (tagMatch) {
+          selectors.push(`${tagMatch[1]}:has-text("${ariaValue}")`);
+        }
       }
 
     } catch (error) {
