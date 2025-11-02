@@ -280,6 +280,8 @@ export default function TestRunDetails() {
   const [executionName, setExecutionName] = useState('');
   const [expandedExecutions, setExpandedExecutions] = useState<Set<number>>(new Set());
   const [executionDetails, setExecutionDetails] = useState<Map<number, any>>(new Map());
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
+  const [showPageGrouping, setShowPageGrouping] = useState(true);
   const { socket } = useSocket();
 
   useEffect(() => {
@@ -533,13 +535,13 @@ export default function TestRunDetails() {
   // Get test type counts for filter buttons
   const getTestTypeCounts = () => {
     if (!testRun?.testCases) return {};
-    
+
     const counts = testRun.testCases.reduce((acc, testCase) => {
       const type = testCase.test_type || 'unknown';
       acc[type] = (acc[type] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
-    
+
     return {
       all: testRun.testCases.length,
       ...counts
@@ -547,6 +549,65 @@ export default function TestRunDetails() {
   };
 
   const testTypeCounts = getTestTypeCounts();
+
+  // Group test cases by page
+  const getGroupedTestCases = () => {
+    if (!showPageGrouping) return null;
+
+    const grouped = filteredTestCases.reduce((acc, testCase) => {
+      const pageKey = testCase.page_url || 'Unknown Page';
+      if (!acc[pageKey]) {
+        acc[pageKey] = {
+          pageUrl: testCase.page_url,
+          pageTitle: testCase.page_title,
+          tests: []
+        };
+      }
+      acc[pageKey].tests.push(testCase);
+      return acc;
+    }, {} as Record<string, { pageUrl: string; pageTitle: string; tests: any[] }>);
+
+    return grouped;
+  };
+
+  const groupedTestCases = getGroupedTestCases();
+
+  const togglePageExpand = (pageKey: string) => {
+    const newExpanded = new Set(expandedPages);
+    if (newExpanded.has(pageKey)) {
+      newExpanded.delete(pageKey);
+    } else {
+      newExpanded.add(pageKey);
+    }
+    setExpandedPages(newExpanded);
+  };
+
+  const selectAllInPage = (pageKey: string) => {
+    if (!groupedTestCases) return;
+    const pageTests = groupedTestCases[pageKey]?.tests || [];
+    const pageTestIds = pageTests.map(tc => tc.id);
+    setSelectedTestCases(prev => [...new Set([...prev, ...pageTestIds])]);
+  };
+
+  const deselectAllInPage = (pageKey: string) => {
+    if (!groupedTestCases) return;
+    const pageTests = groupedTestCases[pageKey]?.tests || [];
+    const pageTestIds = new Set(pageTests.map(tc => tc.id));
+    setSelectedTestCases(prev => prev.filter(id => !pageTestIds.has(id)));
+  };
+
+  const isPageFullySelected = (pageKey: string) => {
+    if (!groupedTestCases) return false;
+    const pageTests = groupedTestCases[pageKey]?.tests || [];
+    return pageTests.length > 0 && pageTests.every(tc => selectedTestCases.includes(tc.id));
+  };
+
+  const isPagePartiallySelected = (pageKey: string) => {
+    if (!groupedTestCases) return false;
+    const pageTests = groupedTestCases[pageKey]?.tests || [];
+    const selectedCount = pageTests.filter(tc => selectedTestCases.includes(tc.id)).length;
+    return selectedCount > 0 && selectedCount < pageTests.length;
+  };
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
@@ -1214,33 +1275,225 @@ export default function TestRunDetails() {
                   
                   {/* Test Selection Controls */}
                   {(testRun.status === 'completed' || testRun.status === 'ready_for_execution' || testRun.status === 'executing') && (
-                    <div className="flex items-center justify-between mb-4 p-3 bg-blue-50 rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <span className="text-sm font-medium text-blue-900">
-                          {selectedTestCases.length} of {filteredTestCases.length} tests selected
-                          {testTypeFilter !== 'all' && (
-                            <span className="text-xs text-blue-700 ml-1">
-                              (filtered from {testRun.testCases.length} total)
-                            </span>
+                    <div className="space-y-3 mb-4">
+                      <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <span className="text-sm font-medium text-blue-900">
+                            {selectedTestCases.length} of {filteredTestCases.length} tests selected
+                            {testTypeFilter !== 'all' && (
+                              <span className="text-xs text-blue-700 ml-1">
+                                (filtered from {testRun.testCases.length} total)
+                              </span>
+                            )}
+                          </span>
+                          <button
+                            onClick={() => setSelectedTestCases(filteredTestCases.map(tc => tc.id))}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            Select All {testTypeFilter !== 'all' ? `(${testTypeFilter})` : ''}
+                          </button>
+                          <button
+                            onClick={() => setSelectedTestCases([])}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          {showPageGrouping && groupedTestCases && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  const allPages = Object.keys(groupedTestCases);
+                                  setExpandedPages(new Set(allPages));
+                                }}
+                                className="text-xs text-gray-600 hover:text-gray-800 font-medium"
+                              >
+                                Expand All
+                              </button>
+                              <button
+                                onClick={() => setExpandedPages(new Set())}
+                                className="text-xs text-gray-600 hover:text-gray-800 font-medium"
+                              >
+                                Collapse All
+                              </button>
+                            </>
                           )}
-                        </span>
-                        <button
-                          onClick={() => setSelectedTestCases(filteredTestCases.map(tc => tc.id))}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Select All {testTypeFilter !== 'all' ? `(${testTypeFilter})` : ''}
-                        </button>
-                        <button
-                          onClick={() => setSelectedTestCases([])}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Clear All
-                        </button>
+                          <button
+                            onClick={() => setShowPageGrouping(!showPageGrouping)}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            {showPageGrouping ? 'List View' : 'Group by Page'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
                   
-                  {filteredTestCases.map((testCase, index) => (
+                  {/* Page Grouped View */}
+                  {showPageGrouping && groupedTestCases && Object.keys(groupedTestCases).length > 0 ? (
+                    Object.entries(groupedTestCases).map(([pageKey, pageData]) => {
+                      const isExpanded = expandedPages.has(pageKey);
+                      const isFullySelected = isPageFullySelected(pageKey);
+                      const isPartiallySelected = isPagePartiallySelected(pageKey);
+
+                      return (
+                        <div key={pageKey} className="mb-4 border rounded-lg overflow-hidden">
+                          {/* Page Header */}
+                          <div className="bg-gray-100 border-b">
+                            <div className="flex items-center justify-between p-4">
+                              <div className="flex items-center space-x-3 flex-1">
+                                <button
+                                  onClick={() => togglePageExpand(pageKey)}
+                                  className="text-gray-600 hover:text-gray-900"
+                                >
+                                  {isExpanded ? '▼' : '▶'}
+                                </button>
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2">
+                                    <Globe className="h-4 w-4 text-gray-500" />
+                                    <span className="font-medium text-gray-900">
+                                      {pageData.pageTitle || 'Untitled Page'}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-gray-600 mt-1">{pageData.pageUrl}</div>
+                                </div>
+                                <span className="text-sm text-gray-600">
+                                  {pageData.tests.length} test{pageData.tests.length !== 1 ? 's' : ''}
+                                </span>
+                              </div>
+                              {(testRun.status === 'completed' || testRun.status === 'ready_for_execution' || testRun.status === 'executing') && (
+                                <div className="flex items-center space-x-2 ml-4">
+                                  <input
+                                    type="checkbox"
+                                    checked={isFullySelected}
+                                    ref={(el) => {
+                                      if (el) el.indeterminate = isPartiallySelected && !isFullySelected;
+                                    }}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        selectAllInPage(pageKey);
+                                      } else {
+                                        deselectAllInPage(pageKey);
+                                      }
+                                    }}
+                                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                  />
+                                  <button
+                                    onClick={() => {
+                                      if (isFullySelected) {
+                                        deselectAllInPage(pageKey);
+                                      } else {
+                                        selectAllInPage(pageKey);
+                                      }
+                                    }}
+                                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                  >
+                                    {isFullySelected ? 'Deselect All' : 'Select All'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Page Tests */}
+                          {isExpanded && (
+                            <div className="p-2 space-y-2 bg-white">
+                              {pageData.tests.map((testCase, index) => (
+                                <div key={testCase.id} className={`border-l-4 border rounded-lg p-4 ${
+                                  testCase.status === 'passed' ? 'border-green-200 bg-green-50' :
+                                  testCase.status === 'failed' ? 'border-red-200 bg-red-50' :
+                                  'border-yellow-200 bg-yellow-50'
+                                }`}>
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                      {/* Test Selection Checkbox */}
+                                      {(testRun.status === 'completed' || testRun.status === 'ready_for_execution' || testRun.status === 'executing') && (
+                                        <div className="flex items-center mb-2">
+                                          <input
+                                            type="checkbox"
+                                            id={`test-${testCase.id}`}
+                                            checked={selectedTestCases.includes(testCase.id)}
+                                            onChange={(e) => handleTestCaseSelection(testCase.id, e.target.checked)}
+                                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                          />
+                                          <label htmlFor={`test-${testCase.id}`} className="ml-2 text-sm text-gray-700">
+                                            Select for execution
+                                          </label>
+                                        </div>
+                                      )}
+
+                                      {/* Test Type Badge */}
+                                      <div className="flex items-center space-x-2 mb-2">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                          testCase.test_type === 'functional' ? 'bg-green-100 text-green-800' :
+                                          testCase.test_type === 'accessibility' ? 'bg-purple-100 text-purple-800' :
+                                          testCase.test_type === 'performance' ? 'bg-orange-100 text-orange-800' :
+                                          testCase.test_type === 'flow' ? 'bg-blue-100 text-blue-800' :
+                                          'bg-gray-100 text-gray-800'
+                                        }`}>
+                                          {testCase.test_type === 'functional' && <CheckCircle className="h-3 w-3 mr-1" />}
+                                          {testCase.test_type === 'accessibility' && <Shield className="h-3 w-3 mr-1" />}
+                                          {testCase.test_type === 'performance' && <Zap className="h-3 w-3 mr-1" />}
+                                          {testCase.test_type === 'flow' && <Activity className="h-3 w-3 mr-1" />}
+                                          {testCase.test_type?.charAt(0).toUpperCase() + testCase.test_type?.slice(1) || 'Unknown'}
+                                        </span>
+                                      </div>
+
+                                      <h4 className="font-medium text-gray-900 mb-1">{testCase.test_name}</h4>
+                                      <p className="text-sm text-gray-600 mb-3">{testCase.test_description}</p>
+
+                                      {/* Test Steps with Results */}
+                                      <TestStepResults testCaseId={testCase.id} testSteps={testCase.test_steps} />
+                                    </div>
+
+                                    {/* Status and Actions */}
+                                    <div className="flex flex-col items-end space-y-2">
+                                      {testCase.status === 'passed' && <CheckCircle className="h-4 w-4 text-green-500" />}
+                                      {testCase.status === 'failed' && <XCircle className="h-4 w-4 text-red-500" />}
+                                      {testCase.status === 'flaky' && <AlertTriangle className="h-4 w-4 text-yellow-500" />}
+                                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                        testCase.status === 'passed' ? 'bg-green-100 text-green-800' :
+                                        testCase.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                        'bg-yellow-100 text-yellow-800'
+                                      }`}>
+                                        {testCase.status?.charAt(0).toUpperCase() + testCase.status?.slice(1)}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Test Metadata */}
+                                  <div className="mt-4 flex items-center justify-between text-xs text-gray-500 bg-white bg-opacity-50 rounded p-2">
+                                    <div className="flex items-center space-x-4">
+                                      <span className="flex items-center">
+                                        <Clock className="h-3 w-3 mr-1" />
+                                        {testCase.execution_time}ms
+                                      </span>
+                                      <span className="flex items-center">
+                                        <Calendar className="h-3 w-3 mr-1" />
+                                        {new Date(testCase.executed_at).toLocaleString()}
+                                      </span>
+                                    </div>
+                                    {testCase.self_healed && <span className="text-blue-600">Self-healed</span>}
+                                  </div>
+
+                                  {/* Error Details */}
+                                  {testCase.error_details && (
+                                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
+                                      <p className="text-sm font-medium text-red-800 mb-1">Error Details:</p>
+                                      <p className="text-sm text-red-700">{testCase.error_details}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    /* List View */
+                    filteredTestCases.map((testCase, index) => (
                     <div key={index} className={`border-l-4 border rounded-lg p-4 ${
                       testCase.status === 'passed' ? 'border-green-200 bg-green-50' :
                       testCase.status === 'failed' ? 'border-red-200 bg-red-50' :
@@ -1326,8 +1579,9 @@ export default function TestRunDetails() {
                         </div>
                       )}
                     </div>
-                  ))}
-                  
+                  ))
+                  )}
+
                   {/* No tests message when filtered */}
                   {filteredTestCases.length === 0 && testRun.testCases.length > 0 && (
                     <div className="text-center py-8">

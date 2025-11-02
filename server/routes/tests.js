@@ -46,11 +46,16 @@ router.get('/runs/:id', async (req, res) => {
       ORDER BY discovered_at
     `, [id]);
 
-    // Get test cases
+    // Get test cases with page information
     const casesResult = await pool.query(`
-      SELECT * FROM test_cases
-      WHERE test_run_id = $1
-      ORDER BY executed_at
+      SELECT
+        tc.*,
+        dp.url as page_url,
+        dp.title as page_title
+      FROM test_cases tc
+      LEFT JOIN discovered_pages dp ON tc.page_id = dp.id
+      WHERE tc.test_run_id = $1
+      ORDER BY dp.url, tc.executed_at
     `, [id]);
 
     res.json({
