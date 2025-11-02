@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { testAPI, reportsAPI, crawlerAPI } from '../services/api';
 import { useSocket } from '../contexts/SocketContext';
+import ScreenshotModal from './ScreenshotModal';
 import {
   Clock,
   CheckCircle,
@@ -164,7 +165,7 @@ function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCa
 }
 
 // Component to handle screenshot loading with base64 data URLs
-function ScreenshotImage({ pageId, filename, alt }: { pageId?: number; filename?: string; alt: string }) {
+function ScreenshotImage({ pageId, filename, alt, onClick }: { pageId?: number; filename?: string; alt: string; onClick?: () => void }) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -271,12 +272,14 @@ function ScreenshotImage({ pageId, filename, alt }: { pageId?: number; filename?
     <img
       src={imageSrc}
       alt={alt}
-      className="w-32 h-24 object-cover rounded border shadow-sm"
+      className={`w-32 h-24 object-cover rounded border shadow-sm ${onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+      onClick={onClick}
       onLoad={() => console.log(`✅ Screenshot image loaded successfully`)}
       onError={(e) => {
         console.error('❌ Screenshot image failed to load:', e);
         setError(true);
       }}
+      title={onClick ? 'Click to view full size' : undefined}
     />
   );
 }
@@ -328,6 +331,7 @@ export default function TestRunDetails() {
   const [showPageGrouping, setShowPageGrouping] = useState(true);
   const [selectedExecutionTests, setSelectedExecutionTests] = useState<Map<number, Set<number>>>(new Map());
   const [rerunningExecution, setRerunningExecution] = useState<number | null>(null);
+  const [screenshotModal, setScreenshotModal] = useState<{ screenshots: any[]; initialIndex: number } | null>(null);
   const { socket } = useSocket();
 
   useEffect(() => {
@@ -1117,10 +1121,41 @@ export default function TestRunDetails() {
 
                               {testResult.screenshots && testResult.screenshots.length > 0 && (
                                 <div className="mt-3">
-                                  <p className="text-sm font-medium text-gray-700 mb-2">Screenshots ({testResult.screenshots.length}):</p>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-sm font-medium text-gray-700">Screenshots ({testResult.screenshots.length}):</p>
+                                    {testResult.screenshots.length > 1 && (
+                                      <button
+                                        onClick={() => {
+                                          const screenshots = testResult.screenshots.map((s: any, idx: number) => ({
+                                            src: `data:image/png;base64,${s.data}`,
+                                            alt: s.description || `Screenshot ${idx + 1}`,
+                                            description: s.description,
+                                            step: s.step,
+                                            action: s.action
+                                          }));
+                                          setScreenshotModal({ screenshots, initialIndex: 0 });
+                                        }}
+                                        className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
+                                      >
+                                        <Play className="h-3 w-3 mr-1" />
+                                        View as Carousel
+                                      </button>
+                                    )}
+                                  </div>
                                   <div className="grid grid-cols-3 gap-2">
                                     {testResult.screenshots.map((screenshot: any, sIdx: number) => (
-                                      <div key={sIdx} className="border rounded p-2">
+                                      <div key={sIdx} className="border rounded p-2 cursor-pointer hover:bg-gray-50 transition-colors"
+                                        onClick={() => {
+                                          const screenshots = testResult.screenshots.map((s: any, idx: number) => ({
+                                            src: `data:image/png;base64,${s.data}`,
+                                            alt: s.description || `Screenshot ${idx + 1}`,
+                                            description: s.description,
+                                            step: s.step,
+                                            action: s.action
+                                          }));
+                                          setScreenshotModal({ screenshots, initialIndex: sIdx });
+                                        }}
+                                      >
                                         <img
                                           src={`data:image/png;base64,${screenshot.data}`}
                                           alt={screenshot.description}
@@ -1244,9 +1279,31 @@ export default function TestRunDetails() {
                         {/* Screenshot */}
                         <div className="flex-shrink-0">
                           {page.id ? (
-                            <ScreenshotImage 
+                            <ScreenshotImage
                               pageId={page.id}
                               alt={`Screenshot of ${page.title || page.url}`}
+                              onClick={async () => {
+                                try {
+                                  const url = `http://localhost:3001/api/screenshots/page/${page.id}`;
+                                  const response = await fetch(url);
+                                  if (response.ok) {
+                                    const data = await response.json();
+                                    if (data.dataUrl) {
+                                      setScreenshotModal({
+                                        screenshots: [{
+                                          src: data.dataUrl,
+                                          alt: `Screenshot of ${page.title || page.url}`,
+                                          description: page.title,
+                                          step: page.url
+                                        }],
+                                        initialIndex: 0
+                                      });
+                                    }
+                                  }
+                                } catch (error) {
+                                  console.error('Error loading screenshot:', error);
+                                }
+                              }}
                             />
                           ) : (
                             <div className="w-32 h-24 bg-gray-100 rounded border flex items-center justify-center shadow-sm">
@@ -1756,6 +1813,15 @@ export default function TestRunDetails() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Screenshot Modal */}
+      {screenshotModal && (
+        <ScreenshotModal
+          screenshots={screenshotModal.screenshots}
+          initialIndex={screenshotModal.initialIndex}
+          onClose={() => setScreenshotModal(null)}
+        />
       )}
     </div>
   );
