@@ -1,7 +1,7 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const promptLoader = require('../utils/promptLoader');
-const pool = require('../config/database');
+const { pool } = require('../config/database');
 const { decrypt } = require('../utils/encryption');
 
 class IntelligentInteractionPlanner {
