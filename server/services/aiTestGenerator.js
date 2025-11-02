@@ -54,6 +54,11 @@ class AITestGenerator {
   }
 
   buildTestGenerationPrompt(pageData) {
+    // Extract navigation elements
+    const navElements = pageData.elements?.navElements || [];
+    const links = pageData.elements?.links || [];
+    const navigationInfo = this.analyzeNavigationStructure(navElements, links);
+
     return promptLoader.renderPrompt('test-generation.txt', {
       url: pageData.url,
       title: pageData.title,
@@ -62,9 +67,53 @@ class AITestGenerator {
       buttons: JSON.stringify(pageData.elements?.buttons || [], null, 2),
       inputs: JSON.stringify(pageData.elements?.inputs || [], null, 2),
       selects: JSON.stringify(pageData.elements?.selects || [], null, 2),
+      navigationElements: navigationInfo.formatted,
+      pageStructure: navigationInfo.structure,
       businessContext: this.config.business_context || '',
       testDataExamples: this.generateRealisticTestDataExamples()
     });
+  }
+
+  analyzeNavigationStructure(navElements, links) {
+    const menuItems = [];
+    const sidebarItems = [];
+
+    // Identify menu/sidebar items that likely reveal content
+    links.forEach(link => {
+      const text = link.text?.toLowerCase() || '';
+      const selector = link.selector || '';
+      const href = link.href || '';
+
+      // Check if it's a sidebar/menu item (likely triggers content without navigation)
+      const isSidebarItem =
+        selector.includes('menu') ||
+        selector.includes('sidebar') ||
+        selector.includes('nav') ||
+        href.startsWith('#') ||
+        text.includes('practice') ||
+        text.includes('form') ||
+        text.includes('example');
+
+      if (isSidebarItem) {
+        sidebarItems.push({ text: link.text, selector });
+      } else {
+        menuItems.push({ text: link.text, selector });
+      }
+    });
+
+    const formatted = [
+      'SIDEBAR/MENU ITEMS (click these to reveal content on same page):',
+      ...sidebarItems.map(item => `  - "${item.text}" (${item.selector})`),
+      '',
+      'REGULAR NAVIGATION LINKS (navigate to different pages):',
+      ...menuItems.slice(0, 10).map(item => `  - "${item.text}" (${item.selector})`)
+    ].join('\n');
+
+    const structure = sidebarItems.length > 0
+      ? `This page has a SIDEBAR NAVIGATION structure. Forms and content may be HIDDEN until you click the relevant menu item. Always check if you need to click a sidebar item first!`
+      : `This page appears to be a standard page with direct content access.`;
+
+    return { formatted, structure };
   }
 
   buildFlowTestGenerationPrompt(pageGroup) {

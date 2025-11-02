@@ -147,14 +147,39 @@ class PageLevelTestGenerator {
    * Generate additional tests using LLM
    */
   async generateLLMTests(pageId, url, analysis, elements) {
+    // Analyze navigation structure
+    const navigationItems = elements.filter(el =>
+      el.element_type === 'link' &&
+      (el.metadata?.href?.startsWith('#') ||
+       el.selector?.includes('menu') ||
+       el.selector?.includes('nav') ||
+       el.text_content?.toLowerCase().includes('practice') ||
+       el.text_content?.toLowerCase().includes('form'))
+    );
+
+    const navigationContext = navigationItems.length > 0
+      ? `\n\nIMPORTANT NAVIGATION CONTEXT:
+This page has ${navigationItems.length} sidebar/menu items that reveal hidden content:
+${navigationItems.map(item => `- "${item.text_content}" (${item.selector})`).join('\n')}
+
+⚠️  CRITICAL: If your test interacts with form fields or content that isn't immediately visible, you MUST first click the appropriate menu item to reveal that content!
+
+Example correct flow:
+1. Click menu item (e.g., "Practice Form")
+2. Wait for content to appear
+3. Fill form fields
+4. Submit form`
+      : '';
+
     const prompt = `You are an expert test automation engineer. Generate meaningful test cases for this webpage.
 
 Page: ${analysis.screenName}
 URL: ${url}
 Page Type: ${analysis.pageType}
 
-Interactive Elements:
+Interactive Elements Currently Visible:
 ${elements.slice(0, 20).map(el => `- ${el.element_type}: "${el.text_content}" (${el.selector})`).join('\n')}
+${navigationContext}
 
 Generate 3-5 meaningful test cases that go beyond basic element testing. Consider:
 - User workflows on this page
@@ -163,6 +188,8 @@ Generate 3-5 meaningful test cases that go beyond basic element testing. Conside
 - Edge cases
 - Accessibility concerns
 - Performance considerations
+
+⚠️  IMPORTANT: If you see navigation/menu items and form fields, the forms are likely HIDDEN. Include a click step for the menu item FIRST!
 
 RESPOND ONLY WITH VALID JSON in this format:
 {

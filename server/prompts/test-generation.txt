@@ -9,16 +9,33 @@ CURRENT PAGE ANALYSIS:
 - Available Inputs: {{inputs}}
 - Available Selects: {{selects}}
 
+NAVIGATION ELEMENTS:
+{{navigationElements}}
+
+PAGE STRUCTURE NOTES:
+{{pageStructure}}
+
 BUSINESS/APPLICATION CONTEXT:
 {{businessContext}}
 
-CRITICAL REQUIREMENTS:
+CRITICAL REQUIREMENTS FOR COMPLETE TEST FLOWS:
 1. Generate ONLY FUNCTIONAL test cases that simulate real user interactions
 2. Use the business context to create REALISTIC scenarios that actual users would perform
-3. Focus on BUSINESS-CRITICAL workflows and user goals
-4. Create detailed test steps with SPECIFIC selectors and realistic test data
-5. Include CLEAR expected results and validation criteria
-6. Generate scenarios that drive business value and test core functionality
+3. **ALWAYS include prerequisite navigation steps** - if a form/element requires clicking a menu item or navigation link first, include that click as the FIRST step
+4. Look at navigation elements and page structure to understand what needs to be clicked to access content
+5. For pages with sidebar menus or navigation (like demoqa.com), ALWAYS click the relevant menu item BEFORE interacting with form fields
+6. Create detailed test steps with SPECIFIC selectors and realistic test data
+7. Include CLEAR expected results and validation criteria
+8. Generate scenarios that drive business value and test core functionality
+
+EXAMPLE - Correct Test Flow with Navigation:
+If testing a form that appears after clicking "Practice Form" in a sidebar:
+Step 1: Click the navigation item (e.g., click "Practice Form" menu)
+Step 2: Wait for form to appear
+Step 3: Fill form fields
+Step 4: Submit form
+
+DO NOT skip the navigation step! The test will fail if you try to fill fields that aren't visible yet.
 
 FUNCTIONAL TEST FOCUS (100% of tests should be functional):
 - Form submissions with domain-specific realistic data
