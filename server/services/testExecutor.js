@@ -511,6 +511,12 @@ class TestExecutor {
   }
 
   async generateAlternativeSelectors(page, originalSelector) {
+    // Validate selector
+    if (!originalSelector || typeof originalSelector !== 'string') {
+      logger.warn(`Invalid selector provided: ${originalSelector}`);
+      return [originalSelector];
+    }
+
     const selectors = [originalSelector];
 
     try {
@@ -680,11 +686,11 @@ class TestExecutor {
 
   async attemptSelfHealing(page, testCase) {
     logger.info(`Attempting self-healing for test case: ${testCase.name}`);
-    
+
     for (const step of testCase.steps) {
       if (step.selector) {
-        const alternatives = this.generateAlternativeSelectors(step.selector);
-        
+        const alternatives = await this.generateAlternativeSelectors(page, step.selector);
+
         for (const altSelector of alternatives) {
           try {
             const element = await page.$(altSelector);
@@ -701,23 +707,6 @@ class TestExecutor {
     }
   }
 
-  generateAlternativeSelectors(originalSelector) {
-    const alternatives = [];
-    
-    if (originalSelector.startsWith('#')) {
-      const id = originalSelector.substring(1);
-      alternatives.push(`[id="${id}"]`);
-      alternatives.push(`*[id*="${id}"]`);
-    }
-    
-    if (originalSelector.startsWith('.')) {
-      const className = originalSelector.substring(1);
-      alternatives.push(`[class*="${className}"]`);
-      alternatives.push(`*[class~="${className}"]`);
-    }
-    
-    return alternatives;
-  }
 
   async updateExecutionStatus(status, errorMessage = null) {
     await pool.query(`
