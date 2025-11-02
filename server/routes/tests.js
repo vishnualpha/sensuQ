@@ -135,16 +135,40 @@ router.get('/executions/:id', async (req, res) => {
 
     // Get test case execution results
     const testCaseResults = await pool.query(`
-      SELECT tce.*, tc.test_name, tc.test_description, tc.test_type, tc.expected_result
+      SELECT tce.*, tc.test_name, tc.test_description, tc.test_type, tc.expected_result, tc.test_steps
       FROM test_case_executions tce
       JOIN test_cases tc ON tce.test_case_id = tc.id
       WHERE tce.test_execution_id = $1
       ORDER BY tce.executed_at
     `, [id]);
 
+    // Format actual results to show simple success/error messages
+    const formattedResults = testCaseResults.rows.map(result => {
+      let formattedActualResult = result.actual_result;
+
+      // Try to parse JSON and extract meaningful info
+      if (result.actual_result) {
+        try {
+          const parsed = JSON.parse(result.actual_result);
+          if (parsed.status === 'passed') {
+            formattedActualResult = 'Test verification completed successfully';
+          } else if (parsed.errorDetails) {
+            formattedActualResult = parsed.errorDetails;
+          }
+        } catch (e) {
+          // If not JSON, keep as is
+        }
+      }
+
+      return {
+        ...result,
+        actual_result: formattedActualResult
+      };
+    });
+
     res.json({
       ...execution,
-      testCaseResults: testCaseResults.rows
+      testCaseResults: formattedResults
     });
   } catch (error) {
     console.error('Error fetching test execution details:', error);
