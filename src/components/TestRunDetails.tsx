@@ -17,7 +17,8 @@ import {
   Square,
   PlayCircle,
   Pause,
-  Play
+  Play,
+  ArrowLeft
 } from 'lucide-react';
 
 // Component to handle screenshot loading with base64 data URLs
@@ -658,12 +659,18 @@ export default function TestRunDetails() {
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Execution History */}
       {showExecutionHistory && (
         <div className="card">
-          <div className="card-header">
+          <div className="card-header flex items-center justify-between">
             <h3 className="text-lg font-medium text-gray-900">Execution History</h3>
+            <button
+              onClick={() => setShowExecutionHistory(false)}
+              className="text-sm text-gray-600 hover:text-gray-900 flex items-center"
+            >
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back to Test Selection
+            </button>
           </div>
           <div className="card-body">
             {executionHistory.length === 0 ? (
@@ -777,7 +784,8 @@ export default function TestRunDetails() {
         </div>
       )}
 
-        <div className="lg:col-span-2 space-y-6">
+      {!showExecutionHistory && (
+        <div className="space-y-6">
           {/* Status Card */}
           <div className="card">
             <div className="card-body">
@@ -1230,43 +1238,7 @@ export default function TestRunDetails() {
             </div>
           </div>
         </div>
-
-        {/* Sidebar - Only show Test Results when tests have been executed */}
-        {(testRun.passed_tests > 0 || testRun.failed_tests > 0 || testRun.flaky_tests > 0) && (
-          <div className="space-y-6">
-            <div className="card">
-              <div className="card-header">
-                <h3 className="text-lg font-medium text-gray-900">Test Results</h3>
-              </div>
-              <div className="card-body">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
-                      <span className="text-sm font-medium">Passed</span>
-                    </div>
-                    <span className="text-sm font-semibold">{testRun.passed_tests}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <XCircle className="h-5 w-5 text-red-500 mr-2" />
-                      <span className="text-sm font-medium">Failed</span>
-                    </div>
-                    <span className="text-sm font-semibold">{testRun.failed_tests}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" />
-                      <span className="text-sm font-medium">Flaky</span>
-                    </div>
-                    <span className="text-sm font-semibold">{testRun.flaky_tests}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
