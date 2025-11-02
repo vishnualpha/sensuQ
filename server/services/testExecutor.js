@@ -313,32 +313,127 @@ class TestExecutor {
   }
 
   async executeTestStep(page, step) {
-    switch (step.action) {
-      case 'navigate':
-        await page.goto(step.value, { waitUntil: 'domcontentloaded', timeout: 10000 });
-        break;
-      case 'click':
-        await page.click(step.selector);
-        break;
-      case 'fill':
-        await page.fill(step.selector, step.value);
-        break;
-      case 'select':
-        await page.selectOption(step.selector, step.value);
-        break;
-      case 'wait':
-        await page.waitForSelector(step.selector);
-        break;
-      case 'assert':
-      case 'verify':
-        const element = await page.$(step.selector);
-        if (!element) {
-          throw new Error(`Element not found: ${step.selector}`);
-        }
-        break;
-      default:
-        logger.warn(`Unknown test step action: ${step.action}`);
+    const timeout = 10000; // 10 second timeout for all operations
+
+    try {
+      switch (step.action) {
+        case 'navigate':
+          await page.goto(step.value, { waitUntil: 'domcontentloaded', timeout });
+          break;
+        case 'click':
+          await this.executeWithRetry(page, step.selector, async (sel) => {
+            await page.click(sel, { timeout });
+          });
+          break;
+        case 'fill':
+          await this.executeWithRetry(page, step.selector, async (sel) => {
+            await page.fill(sel, step.value, { timeout });
+          });
+          break;
+        case 'select':
+          await this.executeWithRetry(page, step.selector, async (sel) => {
+            await page.selectOption(sel, step.value, { timeout });
+          });
+          break;
+        case 'wait':
+          await page.waitForSelector(step.selector, { timeout, state: 'visible' });
+          break;
+        case 'check':
+          await this.executeWithRetry(page, step.selector, async (sel) => {
+            await page.check(sel, { timeout });
+          });
+          break;
+        case 'uncheck':
+          await this.executeWithRetry(page, step.selector, async (sel) => {
+            await page.uncheck(sel, { timeout });
+          });
+          break;
+        case 'assert':
+        case 'verify':
+          const element = await page.waitForSelector(step.selector, { timeout: 5000, state: 'attached' }).catch(() => null);
+          if (!element) {
+            throw new Error(`Element not found: ${step.selector}`);
+          }
+          break;
+        default:
+          logger.warn(`Unknown test step action: ${step.action}`);
+      }
+    } catch (error) {
+      // Add more context to the error
+      throw new Error(`Failed to ${step.action} using selector "${step.selector}": ${error.message}`);
     }
+  }
+
+  async executeWithRetry(page, selector, action) {
+    const alternativeSelectors = await this.generateAlternativeSelectors(page, selector);
+
+    for (const altSelector of alternativeSelectors) {
+      try {
+        await action(altSelector);
+        if (altSelector !== selector) {
+          logger.info(`Self-healing: Used alternative selector "${altSelector}" instead of "${selector}"`);
+        }
+        return; // Success
+      } catch (error) {
+        // Try next selector
+        continue;
+      }
+    }
+
+    // All selectors failed
+    throw new Error(`Could not find element with selector "${selector}" or any alternatives`);
+  }
+
+  async generateAlternativeSelectors(page, originalSelector) {
+    const selectors = [originalSelector];
+
+    try {
+      // Extract meaningful parts from the original selector
+      const idMatch = originalSelector.match(/#([\w-]+)/);
+      const classMatch = originalSelector.match(/\.([\w-]+)/);
+      const attrMatch = originalSelector.match(/\[([\w-]+)([=~*^$|]?=?"?([^"\]]+)"?)?\]/);
+
+      // Try data attributes if original had them
+      if (attrMatch) {
+        const [, attr, , value] = attrMatch;
+        if (value) {
+          selectors.push(`[${attr}*="${value}"]`); // Contains match
+          selectors.push(`[${attr}^="${value}"]`); // Starts with match
+        }
+      }
+
+      // Try class-based alternatives
+      if (classMatch) {
+        const className = classMatch[1];
+        selectors.push(`[class*="${className}"]`);
+      }
+
+      // Try name attribute for inputs
+      if (originalSelector.includes('input') || originalSelector.includes('select')) {
+        const nameMatch = originalSelector.match(/name="([^"]+)"/);
+        if (nameMatch) {
+          selectors.push(`[name="${nameMatch[1]}"]`);
+          selectors.push(`[name*="${nameMatch[1]}"]`);
+        }
+
+        // Try placeholder-based matching
+        const placeholderMatch = originalSelector.match(/placeholder[*~]?="([^"]+)"/);
+        if (placeholderMatch) {
+          selectors.push(`[placeholder*="${placeholderMatch[1]}"]`);
+        }
+      }
+
+      // Try aria-label alternatives
+      const ariaMatch = originalSelector.match(/aria-label[*~]?="([^"]+)"/);
+      if (ariaMatch) {
+        selectors.push(`[aria-label*="${ariaMatch[1]}"]`);
+      }
+
+    } catch (error) {
+      logger.warn(`Error generating alternative selectors: ${error.message}`);
+    }
+
+    return selectors;
   }
 
   async handlePopupsAndModals(page) {
