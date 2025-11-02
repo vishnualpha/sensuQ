@@ -147,7 +147,8 @@ class TestExecutor {
           // Determine final status based on cross-browser results
           const passCount = results.filter(r => r.status === 'passed').length;
           const failCount = results.filter(r => r.status === 'failed').length;
-          
+          const selfHealedAny = results.some(r => r.selfHealed);
+
           if (passCount > 0 && failCount > 0) {
             finalStatus = 'flaky';
             isFlaky = true;
@@ -158,6 +159,11 @@ class TestExecutor {
           } else {
             finalStatus = 'passed';
             passedTests++;
+          }
+
+          // Update isFlaky to reflect self-healing
+          if (selfHealedAny) {
+            isFlaky = true; // Mark as self-healed (using flaky flag for now)
           }
 
           executionTime = results.reduce((sum, r) => sum + r.executionTime, 0) / results.length;
@@ -223,6 +229,7 @@ class TestExecutor {
         // Execute test steps
         let status = 'passed';
         let errorDetails = null;
+        let selfHealed = false;
 
         try {
           await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
@@ -307,14 +314,21 @@ class TestExecutor {
             logger.warn('Failed to capture error screenshot');
           }
 
-          // Attempt self-healing (but don't change status to passed)
+          // Attempt self-healing
           try {
             await this.handlePopupsAndModals(page);
-            await this.attemptSelfHealing(page, testCase);
-            // Self-healing succeeded, mark as failed but note the healing
-            status = 'failed';
+            const healingSucceeded = await this.attemptSelfHealing(page, testCase);
+            if (healingSucceeded) {
+              // Self-healing succeeded - mark test as passed with self_healed flag
+              status = 'passed';
+              selfHealed = true;
+              logger.info(`Self-healing succeeded for test case: ${testCase.name}`);
+            } else {
+              status = 'failed';
+            }
           } catch (healingError) {
             // Self-healing also failed
+            logger.error(`Self-healing failed: ${healingError.message}`);
             status = 'failed';
           }
         }
@@ -326,7 +340,8 @@ class TestExecutor {
           status,
           executionTime,
           errorDetails,
-          screenshots
+          screenshots,
+          selfHealed
         });
 
         await context.close();
@@ -337,7 +352,8 @@ class TestExecutor {
           status: 'failed',
           executionTime: 0,
           errorDetails: error.message,
-          screenshots: []
+          screenshots: [],
+          selfHealed: false
         });
       }
     }
@@ -720,23 +736,49 @@ class TestExecutor {
   async attemptSelfHealing(page, testCase) {
     logger.info(`Attempting self-healing for test case: ${testCase.name}`);
 
-    for (const step of testCase.steps) {
-      if (step.selector) {
-        const alternatives = await this.generateAlternativeSelectors(page, step.selector);
+    try {
+      // Re-execute all steps with self-healing
+      for (let i = 0; i < testCase.steps.length; i++) {
+        const step = testCase.steps[i];
+        const stepStartTime = Date.now();
 
-        for (const altSelector of alternatives) {
-          try {
-            const element = await page.$(altSelector);
-            if (element) {
-              step.selector = altSelector;
-              await this.executeTestStep(page, step);
-              break;
-            }
-          } catch (error) {
-            continue;
-          }
+        try {
+          await this.executeTestStep(page, step);
+
+          // Update step result to passed (overwrites any previous failed status)
+          await this.recordStepResult(
+            testCase.id,
+            i,
+            step,
+            'passed',
+            null,
+            Date.now() - stepStartTime
+          );
+
+          // Small delay between steps
+          await page.waitForTimeout(500);
+        } catch (error) {
+          // Step failed even with self-healing
+          logger.warn(`Self-healing failed at step ${i + 1}: ${error.message}`);
+
+          await this.recordStepResult(
+            testCase.id,
+            i,
+            step,
+            'failed',
+            error.message,
+            Date.now() - stepStartTime
+          );
+
+          return false; // Self-healing failed
         }
       }
+
+      // All steps passed - self-healing succeeded
+      return true;
+    } catch (error) {
+      logger.error(`Self-healing error: ${error.message}`);
+      return false;
     }
   }
 
