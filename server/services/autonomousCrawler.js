@@ -721,12 +721,14 @@ class AutonomousCrawler {
 
       const screenshot = await this.page.screenshot({ encoding: 'base64', fullPage: false });
       const pageSource = await this.page.content();
+      const imageSize = screenshot ? screenshot.length : 0;
+      const imageFormat = 'png';
 
       const result = await pool.query(
         `INSERT INTO discovered_pages
-         (test_run_id, url, title, screen_name, page_type, elements_count, screenshot_path, page_source, crawl_depth,
+         (test_run_id, url, title, screen_name, page_type, elements_count, screenshot_path, screenshot_data, image_size, image_format, page_source, crawl_depth,
           is_virtual, state_identifier, triggered_by_action, parent_page_id, state_metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          RETURNING id`,
         [
           this.testRunId,
@@ -736,6 +738,9 @@ class AutonomousCrawler {
           virtualPage.changeType,
           0,
           `virtual_${this.virtualPageCounter}.png`,
+          screenshot,
+          imageSize,
+          imageFormat,
           pageSource,
           depth,
           true,
@@ -773,14 +778,14 @@ class AutonomousCrawler {
    */
   async saveDiscoveredPage(url, title, screenName, pageType, screenshot, pageSource, elementsCount, depth) {
     const screenshotPath = `screenshots/${this.testRunId}_${Date.now()}.png`;
-    // In production, save screenshot to file system or cloud storage
-    // For now, we'll store base64 in a separate field
+    const imageSize = screenshot ? screenshot.length : 0;
+    const imageFormat = 'png';
 
     const result = await pool.query(
-      `INSERT INTO discovered_pages (test_run_id, url, title, screen_name, page_type, elements_count, screenshot_path, page_source, crawl_depth)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO discovered_pages (test_run_id, url, title, screen_name, page_type, elements_count, screenshot_path, screenshot_data, image_size, image_format, page_source, crawl_depth)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id`,
-      [this.testRunId, url, title, screenName, pageType, elementsCount, screenshotPath, pageSource, depth]
+      [this.testRunId, url, title, screenName, pageType, elementsCount, screenshotPath, screenshot, imageSize, imageFormat, pageSource, depth]
     );
 
     return result.rows[0].id;
