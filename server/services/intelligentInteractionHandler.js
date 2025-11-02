@@ -9,14 +9,10 @@ class IntelligentInteractionHandler {
   }
 
   async handlePageObstacles(page, analysis) {
-    // Always attempt to close popups/modals proactively
-    logger.info('Proactively checking for and dismissing popups/modals');
-    await this.dismissAllObstacles(page);
-
-    // Also handle any obstacles identified by AI analysis
+    // Handle any obstacles identified by AI analysis
     const obstacles = analysis.obstacles || [];
     if (obstacles.length > 0) {
-      logger.info(`Handling ${obstacles.length} additional obstacles from analysis`);
+      logger.info(`Handling ${obstacles.length} obstacles from AI analysis`);
       for (const obstacle of obstacles) {
         try {
           if (obstacle.toLowerCase().includes('modal') || obstacle.toLowerCase().includes('popup')) {
@@ -30,25 +26,50 @@ class IntelligentInteractionHandler {
           logger.warn(`Error handling obstacle "${obstacle}": ${error.message}`);
         }
       }
+    } else {
+      logger.info('No obstacles identified by AI analysis');
     }
   }
 
   async dismissAllObstacles(page) {
     try {
       // Wait a moment for any popups to appear
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(1500);
 
       // Try dismissing modals first
-      await this.dismissModals(page);
+      try {
+        await this.dismissModals(page);
+        await page.waitForTimeout(500);
+      } catch (e) {
+        logger.debug(`Modal dismissal error: ${e.message}`);
+      }
 
       // Then try accepting cookies
-      await this.acceptCookies(page);
+      try {
+        await this.acceptCookies(page);
+        await page.waitForTimeout(500);
+      } catch (e) {
+        logger.debug(`Cookie acceptance error: ${e.message}`);
+      }
 
       // Then dismiss notifications
-      await this.dismissNotifications(page);
+      try {
+        await this.dismissNotifications(page);
+        await page.waitForTimeout(500);
+      } catch (e) {
+        logger.debug(`Notification dismissal error: ${e.message}`);
+      }
 
       // Finally, try overlay/backdrop clicks
-      await this.dismissOverlays(page);
+      try {
+        await this.dismissOverlays(page);
+        await page.waitForTimeout(500);
+      } catch (e) {
+        logger.debug(`Overlay dismissal error: ${e.message}`);
+      }
+
+      // Wait for any animations to complete after dismissal
+      await page.waitForTimeout(1000);
 
       logger.info('Completed proactive obstacle dismissal');
     } catch (error) {

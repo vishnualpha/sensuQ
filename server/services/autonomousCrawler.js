@@ -178,7 +178,14 @@ class AutonomousCrawler {
       await this.page.waitForTimeout(2000); // Wait for dynamic content
 
       // Proactively dismiss popups/modals before analyzing the page
-      await this.handlePopupsAndModals(this.page);
+      try {
+        await Promise.race([
+          this.handlePopupsAndModals(this.page),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Popup handling timeout')), 8000))
+        ]);
+      } catch (popupError) {
+        logger.warn(`Popup handling timed out or failed: ${popupError.message}`);
+      }
 
       this.visitedUrls.add(url);
       this.pagesDiscovered++;

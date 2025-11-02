@@ -186,10 +186,21 @@ class PlaywrightCrawler {
 
       await this.interactionHandler.waitForPageStability(page);
 
+      // First, proactively handle popups before any analysis
+      try {
+        await this.interactionHandler.dismissAllObstacles(page);
+      } catch (error) {
+        logger.warn(`Popup dismissal failed: ${error.message}`);
+      }
+
+      // Wait for page to stabilize after popup dismissal
+      await this.interactionHandler.waitForPageStability(page);
+
       const analysis = await this.pageAnalyzer.analyzePageWithVision(page, task.url);
 
       logger.info(`Page analysis: type=${analysis.pageType}, value=${analysis.pageValue}, priority=${analysis.priority}`);
 
+      // Handle any additional obstacles identified by analysis
       await this.interactionHandler.handlePageObstacles(page, analysis);
 
       await page.waitForTimeout(1000);

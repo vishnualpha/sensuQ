@@ -9,14 +9,34 @@ class IntelligentPageAnalyzer {
 
   async analyzePageWithVision(page, url) {
     try {
+      // Check if page is still valid
+      const pageUrl = await page.url().catch(() => null);
+      if (!pageUrl) {
+        logger.warn('Page is no longer valid, using fallback analysis');
+        return this.getFallbackAnalysis(page, url);
+      }
+
       const screenshot = await page.screenshot({
         fullPage: false,
-        type: 'png'
+        type: 'png',
+        timeout: 10000
+      }).catch(async (error) => {
+        logger.warn(`Screenshot failed: ${error.message}, retrying with viewport only`);
+        return await page.screenshot({
+          fullPage: false,
+          type: 'png',
+          timeout: 5000
+        });
       });
 
       const screenshotBase64 = screenshot.toString('base64');
 
       const pageContext = await this.extractPageContext(page);
+
+      if (!pageContext || !pageContext.buttons) {
+        logger.warn('Page context extraction returned invalid data, using fallback');
+        return this.getFallbackAnalysis(page, url);
+      }
 
       const analysis = await this.getLLMPageAnalysis(screenshotBase64, pageContext, url);
 
@@ -30,6 +50,7 @@ class IntelligentPageAnalyzer {
   async extractPageContext(page) {
     try {
       return await page.evaluate(() => {
+        try {
         const getElementInfo = (selector) => {
           return Array.from(document.querySelectorAll(selector)).map(el => ({
             tag: el.tagName.toLowerCase(),
@@ -151,10 +172,34 @@ class IntelligentPageAnalyzer {
           hasSearchForm: document.querySelectorAll('input[type="search"], input[placeholder*="search" i]').length > 0,
           hasMultiStepForm: document.querySelectorAll('[class*="step"], [class*="wizard"], [data-step]').length > 0
         };
+        } catch (evalError) {
+          console.error('Error in page.evaluate:', evalError);
+          return {
+            url: window.location.href,
+            title: document.title,
+            buttons: [],
+            inputs: [],
+            links: [],
+            clickableElements: [],
+            forms: [],
+            selects: [],
+            textareas: []
+          };
+        }
       });
     } catch (error) {
       logger.error(`Error extracting page context: ${error.message}`);
-      return null;
+      return {
+        url: '',
+        title: '',
+        buttons: [],
+        inputs: [],
+        links: [],
+        clickableElements: [],
+        forms: [],
+        selects: [],
+        textareas: []
+      };
     }
   }
 
