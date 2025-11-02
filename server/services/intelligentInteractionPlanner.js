@@ -102,7 +102,7 @@ class IntelligentInteractionPlanner {
    Attributes: ${JSON.stringify(el.attributes)}`;
     }).join('\n\n');
 
-    const businessContext = this.testConfig.business_context || 'General web application';
+    const businessContext = this.config.business_context || 'General web application';
 
     promptTemplate = promptTemplate.replace('{url}', url);
     promptTemplate = promptTemplate.replace('{title}', title || 'Unknown');
