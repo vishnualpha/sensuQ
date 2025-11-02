@@ -96,6 +96,50 @@ router.get('/status/:testRunId', async (req, res) => {
   }
 });
 
+// Pause crawling
+router.post('/pause/:testRunId', async (req, res) => {
+  try {
+    const { testRunId } = req.params;
+
+    const crawler = global.activeCrawlers.get(parseInt(testRunId));
+    if (crawler) {
+      await crawler.pause();
+      res.json({ message: 'Crawling paused successfully' });
+    } else {
+      // Crawler not found in active list, update database
+      await pool.query(`
+        UPDATE test_runs
+        SET status = 'paused'
+        WHERE id = $1 AND created_by = $2
+      `, [testRunId, req.user.id]);
+
+      res.json({ message: 'Crawling paused successfully' });
+    }
+  } catch (error) {
+    console.error('Error pausing crawler:', error);
+    res.status(500).json({ error: 'Failed to pause crawling' });
+  }
+});
+
+// Resume crawling
+router.post('/resume/:testRunId', async (req, res) => {
+  try {
+    const { testRunId } = req.params;
+
+    const crawler = global.activeCrawlers.get(parseInt(testRunId));
+    if (crawler) {
+      await crawler.resume();
+      res.json({ message: 'Crawling resumed successfully' });
+    } else {
+      // Crawler not in memory, need to restart it
+      res.status(400).json({ error: 'Crawler session has expired. Please start a new crawl.' });
+    }
+  } catch (error) {
+    console.error('Error resuming crawler:', error);
+    res.status(500).json({ error: 'Failed to resume crawling' });
+  }
+});
+
 // Stop crawling
 router.post('/stop/:testRunId', async (req, res) => {
   try {

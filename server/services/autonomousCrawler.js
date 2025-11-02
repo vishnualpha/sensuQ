@@ -29,6 +29,7 @@ class AutonomousCrawler {
     this.visitedUrls = new Set();
     this.crawlPaths = [];
     this.shouldStop = false;
+    this.isPaused = false;
     this.currentDepth = 0;
     this.pagesDiscovered = 0;
     this.pathSequence = 0;
@@ -654,6 +655,18 @@ class AutonomousCrawler {
       logger.info(`Found ${queueItems.rows.length} pages to process at depth ${currentDepth}`);
 
       for (const item of queueItems.rows) {
+        // Check for pause
+        while (this.isPaused && !this.shouldStop) {
+          logger.info('Crawler is paused. Waiting...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        // Check for stop
+        if (this.shouldStop) {
+          logger.info('Stop requested, exiting crawl loop');
+          break;
+        }
+
         if (this.pagesDiscovered >= this.testConfig.max_pages) {
           logger.info(`Reached max pages limit (${this.testConfig.max_pages})`);
           break;
@@ -913,11 +926,56 @@ class AutonomousCrawler {
   }
 
   /**
+   * Pause the crawler
+   */
+  async pause() {
+    logger.info('Pause requested for crawler');
+    this.isPaused = true;
+
+    await pool.query(
+      `UPDATE test_runs SET status = 'paused' WHERE id = $1`,
+      [this.testRunId]
+    );
+
+    if (this.io) {
+      this.io.emit('crawlerProgress', {
+        testRunId: this.testRunId,
+        phase: 'paused',
+        message: 'Crawling paused',
+        discoveredPagesCount: this.pagesDiscovered
+      });
+    }
+  }
+
+  /**
+   * Resume the crawler
+   */
+  async resume() {
+    logger.info('Resume requested for crawler');
+    this.isPaused = false;
+
+    await pool.query(
+      `UPDATE test_runs SET status = 'running' WHERE id = $1`,
+      [this.testRunId]
+    );
+
+    if (this.io) {
+      this.io.emit('crawlerProgress', {
+        testRunId: this.testRunId,
+        phase: 'crawling',
+        message: 'Crawling resumed',
+        discoveredPagesCount: this.pagesDiscovered
+      });
+    }
+  }
+
+  /**
    * Stop the crawler
    */
   async stop() {
     logger.info('Stop requested for crawler');
     this.shouldStop = true;
+    this.isPaused = false;
     await this.updateTestRunStats();
   }
 

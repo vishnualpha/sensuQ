@@ -73,13 +73,16 @@ export const crawlerAPI = {
   getCrawlerStatus: (testRunId: number) => 
     api.get(`/crawler/status/${testRunId}`),
   
-  stopCrawling: (testRunId: number) => 
+  pauseCrawling: (testRunId: number) =>
+    api.post(`/crawler/pause/${testRunId}`),
+
+  resumeCrawling: (testRunId: number) =>
+    api.post(`/crawler/resume/${testRunId}`),
+
+  stopCrawling: (testRunId: number) =>
     api.post(`/crawler/stop/${testRunId}`),
-  
-  stopCrawlingAndGenerate: (testRunId: number) => 
-    api.post(`/crawler/stop-and-generate/${testRunId}`),
-  
-  executeTests: (testRunId: number, selectedTestCaseIds: number[]) => 
+
+  executeTests: (testRunId: number, selectedTestCaseIds: number[]) =>
     api.post(`/crawler/execute/${testRunId}`, { selectedTestCaseIds }),
 
   executeTestsWithName: (testRunId: number, selectedTestCaseIds: number[], executionName?: string) => 

@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { testAPI, reportsAPI, crawlerAPI } from '../services/api';
 import { useSocket } from '../contexts/SocketContext';
-import { 
-  Clock, 
-  CheckCircle, 
-  XCircle, 
-  AlertTriangle, 
+import {
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
   Download,
   Globe,
   FileText,
@@ -15,7 +15,9 @@ import {
   Zap,
   Calendar,
   Square,
-  PlayCircle
+  PlayCircle,
+  Pause,
+  Play
 } from 'lucide-react';
 
 // Component to handle screenshot loading with base64 data URLs
@@ -272,6 +274,34 @@ export default function TestRunDetails() {
     }
   };
 
+  const handlePauseCrawling = async () => {
+    if (!testRun) return;
+
+    setStoppingCrawler(true);
+    try {
+      await crawlerAPI.pauseCrawling(testRun.id);
+    } catch (error) {
+      console.error('Error pausing crawler:', error);
+      alert('Failed to pause crawler. Please try again.');
+    } finally {
+      setStoppingCrawler(false);
+    }
+  };
+
+  const handleResumeCrawling = async () => {
+    if (!testRun) return;
+
+    setStoppingCrawler(true);
+    try {
+      await crawlerAPI.resumeCrawling(testRun.id);
+    } catch (error) {
+      console.error('Error resuming crawler:', error);
+      alert('Failed to resume crawler. Please try again.');
+    } finally {
+      setStoppingCrawler(false);
+    }
+  };
+
   const handleStopCrawling = async () => {
     if (!testRun) return;
 
@@ -433,18 +463,53 @@ export default function TestRunDetails() {
         <div className="flex items-center space-x-3">
           {/* Crawler Control Buttons */}
           {testRun.status === 'running' && (
-            <button
-              onClick={handleStopCrawling}
-              disabled={stoppingCrawler}
-              className="inline-flex items-center px-4 py-2 border border-orange-300 text-sm font-medium rounded-md shadow-sm text-orange-700 bg-orange-50 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
-            >
-              {stoppingCrawler ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
-              ) : (
-                <Square className="h-4 w-4 mr-2" />
-              )}
-              {stoppingCrawler ? 'Stopping...' : 'Stop Crawling'}
-            </button>
+            <>
+              <button
+                onClick={handlePauseCrawling}
+                disabled={stoppingCrawler}
+                className="inline-flex items-center px-4 py-2 border border-blue-300 text-sm font-medium rounded-md shadow-sm text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <Pause className="h-4 w-4 mr-2" />
+                Pause
+              </button>
+              <button
+                onClick={handleStopCrawling}
+                disabled={stoppingCrawler}
+                className="inline-flex items-center px-4 py-2 border border-orange-300 text-sm font-medium rounded-md shadow-sm text-orange-700 bg-orange-50 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
+              >
+                {stoppingCrawler ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                ) : (
+                  <Square className="h-4 w-4 mr-2" />
+                )}
+                {stoppingCrawler ? 'Stopping...' : 'Stop'}
+              </button>
+            </>
+          )}
+
+          {testRun.status === 'paused' && (
+            <>
+              <button
+                onClick={handleResumeCrawling}
+                disabled={stoppingCrawler}
+                className="inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+              >
+                <Play className="h-4 w-4 mr-2" />
+                Resume
+              </button>
+              <button
+                onClick={handleStopCrawling}
+                disabled={stoppingCrawler}
+                className="inline-flex items-center px-4 py-2 border border-orange-300 text-sm font-medium rounded-md shadow-sm text-orange-700 bg-orange-50 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
+              >
+                {stoppingCrawler ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                ) : (
+                  <Square className="h-4 w-4 mr-2" />
+                )}
+                {stoppingCrawler ? 'Stopping...' : 'Stop'}
+              </button>
+            </>
           )}
           
           {['ready_for_execution', 'completed'].includes(testRun.status) && (
@@ -496,16 +561,18 @@ export default function TestRunDetails() {
       </div>
 
       {/* Crawler Progress */}
-      {crawlerProgress && (testRun?.status === 'running' || crawlerProgress.phase !== 'completed') && (
+      {crawlerProgress && (testRun?.status === 'running' || testRun?.status === 'paused' || crawlerProgress.phase !== 'completed') && (
         <div className="card">
           <div className="card-body">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center">
                 {crawlerProgress.phase === 'crawling' && <Activity className="h-5 w-5 text-blue-500 mr-2 animate-spin" />}
+                {crawlerProgress.phase === 'paused' && <Pause className="h-5 w-5 text-yellow-500 mr-2" />}
                 {crawlerProgress.phase === 'generating' && <FileText className="h-5 w-5 text-purple-500 mr-2" />}
                 {crawlerProgress.phase === 'executing' && <PlayCircle className="h-5 w-5 text-green-500 mr-2" />}
                 <h3 className="text-lg font-medium text-gray-900">
                   {crawlerProgress.phase === 'crawling' && 'Crawling in Progress'}
+                  {crawlerProgress.phase === 'paused' && 'Crawling Paused'}
                   {crawlerProgress.phase === 'generating' && 'Generating Test Cases'}
                   {crawlerProgress.phase === 'executing' && 'Executing Tests'}
                   {crawlerProgress.phase === 'completed' && 'Process Completed'}
@@ -525,6 +592,7 @@ export default function TestRunDetails() {
                 <div
                   className={`h-2 rounded-full transition-all duration-300 ${
                     crawlerProgress.phase === 'crawling' ? 'bg-blue-600' :
+                    crawlerProgress.phase === 'paused' ? 'bg-yellow-600' :
                     crawlerProgress.phase === 'generating' ? 'bg-purple-600' :
                     crawlerProgress.phase === 'executing' ? 'bg-green-600' :
                     'bg-gray-600'
@@ -536,7 +604,13 @@ export default function TestRunDetails() {
             
             {crawlerProgress.phase === 'crawling' && (
               <p className="text-sm text-gray-500 mt-2">
-                💡 You can stop crawling at any time. Test cases are generated automatically for each discovered page.
+                💡 Pause to review progress or Stop to finish. Test cases are generated automatically for each page.
+              </p>
+            )}
+
+            {crawlerProgress.phase === 'paused' && (
+              <p className="text-sm text-gray-500 mt-2">
+                ⏸️ Crawling is paused. Click Resume to continue discovering pages or Stop to finish and run tests.
               </p>
             )}
             
