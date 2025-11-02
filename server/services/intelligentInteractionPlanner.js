@@ -28,6 +28,11 @@ class IntelligentInteractionPlanner {
     try {
       logger.info(`🧠 Generating interaction scenarios for: ${screenName}`);
 
+      if (!this.apiKey) {
+        logger.warn('No API key available for interaction scenario generation');
+        return [];
+      }
+
       const prompt = await this.buildPrompt(
         url,
         title,
@@ -87,7 +92,11 @@ class IntelligentInteractionPlanner {
       return scenarios.scenarios;
 
     } catch (error) {
-      logger.error(`Failed to generate interaction scenarios: ${error.message}`);
+      if (error.response) {
+        logger.error(`Failed to generate interaction scenarios: ${error.response.status} - ${error.response.data?.error?.message || error.message}`);
+      } else {
+        logger.error(`Failed to generate interaction scenarios: ${error.message}`);
+      }
       return [];
     }
   }
