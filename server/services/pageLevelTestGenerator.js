@@ -65,7 +65,7 @@ class PageLevelTestGenerator {
       test_description: `Verify that ${screenName} loads successfully`,
       test_level: 'page',
       test_steps: [
-        { action: 'navigate', target: url },
+        { action: 'navigate', value: url },
         { action: 'waitForLoadState', state: 'networkidle' }
       ],
       expected_result: 'Page loads without errors',
@@ -83,7 +83,7 @@ class PageLevelTestGenerator {
       test_description: `Compare visual appearance of ${screenName} against baseline`,
       test_level: 'page',
       test_steps: [
-        { action: 'navigate', target: url },
+        { action: 'navigate', value: url },
         { action: 'screenshot', fullPage: true },
         { action: 'compareScreenshot', baseline: 'baseline.png' }
       ],
@@ -107,7 +107,7 @@ class PageLevelTestGenerator {
         test_description: `Test ${element.element_type} interaction: ${element.metadata?.description || ''}`,
         test_level: 'page',
         test_steps: [
-          { action: 'navigate', target: url },
+          { action: 'navigate', value: url },
           { action: 'waitForSelector', selector: element.selector },
           { action: 'assertVisible', selector: element.selector },
           this.getInteractionStep(element)

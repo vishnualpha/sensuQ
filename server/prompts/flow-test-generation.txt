@@ -41,8 +41,8 @@ Return user journey test cases in this exact JSON format:
       "steps": [
         {
           "action": "navigate|click|fill|select|wait|assert|verify",
-          "selector": "specific CSS selector",
-          "value": "realistic test data for this business domain",
+          "selector": "specific CSS selector (empty string for navigate)",
+          "value": "for navigate: the URL; for fill/select: the test data",
           "description": "Clear description of this step in the user journey",
           "expectedOutcome": "Specific expected result for this step",
           "pageUrl": "URL where this step should be performed"

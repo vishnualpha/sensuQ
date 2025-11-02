@@ -46,8 +46,8 @@ Return ONLY functional test cases in this exact JSON format:
       "steps": [
         {
           "action": "navigate|click|fill|select|wait|assert|verify",
-          "selector": "specific CSS selector for the element",
-          "value": "realistic business-relevant test data",
+          "selector": "specific CSS selector (leave empty for navigate action)",
+          "value": "for navigate: the URL to visit; for fill/select: the data to input",
           "description": "Clear description of what this step does and why"
         }
       ],

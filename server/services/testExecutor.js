@@ -318,13 +318,19 @@ class TestExecutor {
     try {
       switch (step.action) {
         case 'navigate':
+          if (!step.value) {
+            throw new Error(`Navigate action requires a URL value, got: ${step.value}`);
+          }
           await page.goto(step.value, { waitUntil: 'domcontentloaded', timeout });
           break;
         case 'click':
           await this.smartClickWithRetry(page, step.selector, timeout);
           break;
         case 'fill':
-          await this.smartFillWithRetry(page, step.selector, step.value, timeout);
+          if (!step.value) {
+            logger.warn(`Fill action has no value, using empty string for selector: ${step.selector}`);
+          }
+          await this.smartFillWithRetry(page, step.selector, step.value || '', timeout);
           break;
         case 'select':
           await this.smartSelectWithRetry(page, step.selector, step.value, timeout);
@@ -347,8 +353,11 @@ class TestExecutor {
           logger.warn(`Unknown test step action: ${step.action}`);
       }
     } catch (error) {
-      // Add more context to the error
-      throw new Error(`Failed to ${step.action} using selector "${step.selector}": ${error.message}`);
+      // Add more context to the error with proper field based on action
+      const context = step.action === 'navigate'
+        ? `URL "${step.value}"`
+        : `selector "${step.selector}"`;
+      throw new Error(`Failed to ${step.action} using ${context}: ${error.message}`);
     }
   }
 
