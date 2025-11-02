@@ -580,12 +580,13 @@ export default function TestRunDetails() {
         acc[pageKey] = {
           pageUrl: testCase.page_url,
           pageTitle: testCase.page_title,
+          pageName: testCase.page_name || testCase.page_title || 'Unknown Page',
           tests: []
         };
       }
       acc[pageKey].tests.push(testCase);
       return acc;
-    }, {} as Record<string, { pageUrl: string; pageTitle: string; tests: any[] }>);
+    }, {} as Record<string, { pageUrl: string; pageTitle: string; pageName: string; tests: any[] }>);
 
     return grouped;
   };
@@ -1360,7 +1361,7 @@ export default function TestRunDetails() {
                                   <div className="flex items-center space-x-2">
                                     <Globe className="h-4 w-4 text-gray-500" />
                                     <span className="font-medium text-gray-900">
-                                      {pageData.pageTitle || 'Untitled Page'}
+                                      {pageData.pageName}
                                     </span>
                                   </div>
                                   <div className="text-xs text-gray-600 mt-1">{pageData.pageUrl}</div>

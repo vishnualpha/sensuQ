@@ -7,6 +7,7 @@ const IntelligentInteractionPlanner = require('./intelligentInteractionPlanner')
 const IntelligentTestAdapter = require('./intelligentTestAdapter');
 const SPAStateDetector = require('./spaStateDetector');
 const { pool } = require('../config/database');
+const { generatePageName } = require('../utils/pageNameGenerator');
 
 /**
  * Autonomous crawler that uses vision LLM to identify and interact with elements
@@ -884,11 +885,18 @@ class AutonomousCrawler {
     const imageSize = screenshot ? screenshot.length : 0;
     const imageFormat = 'png';
 
+    // Generate a friendly page name if screenName is not provided or is generic
+    let finalScreenName = screenName;
+    if (!screenName || screenName === title || screenName === 'DEMOQA') {
+      finalScreenName = generatePageName(url, title);
+      logger.info(`Generated page name: "${finalScreenName}" for ${url}`);
+    }
+
     const result = await pool.query(
       `INSERT INTO discovered_pages (test_run_id, url, title, screen_name, page_type, elements_count, screenshot_path, screenshot_data, image_size, image_format, page_source, crawl_depth)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id`,
-      [this.testRunId, url, title, screenName, pageType, elementsCount, screenshotPath, screenshot, imageSize, imageFormat, pageSource, depth]
+      [this.testRunId, url, title, finalScreenName, pageType, elementsCount, screenshotPath, screenshot, imageSize, imageFormat, pageSource, depth]
     );
 
     return result.rows[0].id;

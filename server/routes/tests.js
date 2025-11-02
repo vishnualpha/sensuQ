@@ -51,11 +51,12 @@ router.get('/runs/:id', async (req, res) => {
       SELECT
         tc.*,
         dp.url as page_url,
-        dp.title as page_title
+        dp.title as page_title,
+        dp.screen_name as page_name
       FROM test_cases tc
       LEFT JOIN discovered_pages dp ON tc.page_id = dp.id
       WHERE tc.test_run_id = $1
-      ORDER BY dp.url, tc.executed_at
+      ORDER BY dp.screen_name, dp.url, tc.executed_at
     `, [id]);
 
     res.json({
