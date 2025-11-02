@@ -4,6 +4,7 @@ const { VisionElementIdentifier } = require('./visionElementIdentifier');
 const { PageLevelTestGenerator } = require('./pageLevelTestGenerator');
 const { FlowLevelTestGenerator } = require('./flowLevelTestGenerator');
 const IntelligentInteractionPlanner = require('./intelligentInteractionPlanner');
+const IntelligentTestAdapter = require('./intelligentTestAdapter');
 const SPAStateDetector = require('./spaStateDetector');
 const { pool } = require('../config/database');
 
@@ -20,6 +21,7 @@ class AutonomousCrawler {
     this.pageTestGenerator = new PageLevelTestGenerator(llmConfig);
     this.flowTestGenerator = new FlowLevelTestGenerator(llmConfig);
     this.interactionPlanner = new IntelligentInteractionPlanner(llmConfig);
+    this.testAdapter = new IntelligentTestAdapter(llmConfig);
     this.stateDetector = new SPAStateDetector();
 
     this.browser = null;
@@ -390,8 +392,55 @@ class AutonomousCrawler {
         } catch (stepError) {
           logger.warn(`  ❌ Step ${i + 1} failed: ${stepError.message}`);
           lastStepError = stepError.message;
-          scenarioSuccess = false;
-          break;
+
+          // Use LLM to analyze failure and suggest fix
+          logger.info(`  🤖 Asking LLM for help with failed step...`);
+          try {
+            const screenshotBase64 = await this.page.screenshot({ encoding: 'base64', fullPage: false });
+            const pageSource = await this.page.content();
+            const intent = step.expectedOutcome || `${step.action} on ${step.textContent}`;
+
+            const analysis = await this.testAdapter.analyzeFailureAndSuggestFix(
+              step,
+              stepError.message,
+              screenshotBase64,
+              pageSource,
+              intent
+            );
+
+            if (analysis && analysis.canAchieveIntent && analysis.alternativeSteps.length > 0) {
+              logger.info(`  💡 LLM diagnosis: ${analysis.diagnosis}`);
+              logger.info(`  🔄 Trying ${analysis.alternativeSteps.length} alternative steps...`);
+
+              await this.testAdapter.executeAlternativeSteps(this.page, analysis.alternativeSteps, this);
+              await this.stateDetector.waitForStateSettlement(this.page);
+
+              // Verify if intent was achieved
+              const afterScreenshot = await this.page.screenshot({ encoding: 'base64', fullPage: false });
+              const verification = await this.testAdapter.verifyIntentAchieved(
+                this.page,
+                intent,
+                afterScreenshot
+              );
+
+              if (verification.achieved) {
+                logger.info(`  ✅ LLM adaptation succeeded! Continuing scenario...`);
+                continue;
+              } else {
+                logger.warn(`  ⚠️ LLM adaptation didn't achieve intent: ${verification.evidence}`);
+                scenarioSuccess = false;
+                break;
+              }
+            } else {
+              logger.warn(`  ⚠️ LLM couldn't suggest a fix`);
+              scenarioSuccess = false;
+              break;
+            }
+          } catch (adaptError) {
+            logger.error(`  ❌ LLM adaptation failed: ${adaptError.message}`);
+            scenarioSuccess = false;
+            break;
+          }
         }
       }
 
