@@ -28,6 +28,7 @@ class AutonomousCrawler {
 
     this.visitedUrls = new Set();
     this.crawlPaths = [];
+    this.shouldStop = false;
     this.currentDepth = 0;
     this.pagesDiscovered = 0;
     this.pathSequence = 0;
@@ -44,13 +45,18 @@ class AutonomousCrawler {
       logger.info(`Max Depth: ${this.testConfig.max_depth}, Max Pages: ${this.testConfig.max_pages}`);
       logger.info(`🔄 Using BREADTH-FIRST crawling strategy`);
 
+      this.shouldStop = false;
       await this.initializeBrowser();
 
       await this.enqueueUrl(this.testConfig.target_url, 0, null, null, 'high');
 
       await this.processBreadthFirstQueue();
 
-      logger.info(`Crawl completed. Discovered ${this.pagesDiscovered} pages`);
+      if (this.shouldStop) {
+        logger.info(`Crawl stopped by user. Discovered ${this.pagesDiscovered} pages`);
+      } else {
+        logger.info(`Crawl completed. Discovered ${this.pagesDiscovered} pages`);
+      }
 
       // Emit test generation phase
       if (this.io) {
@@ -621,7 +627,7 @@ class AutonomousCrawler {
     let currentDepth = 0;
     let processedCount = 0;
 
-    while (currentDepth <= this.testConfig.max_depth && this.pagesDiscovered < this.testConfig.max_pages) {
+    while (currentDepth <= this.testConfig.max_depth && this.pagesDiscovered < this.testConfig.max_pages && !this.shouldStop) {
       logger.info(`\n📊 Processing depth level: ${currentDepth}`);
 
       const queueItems = await pool.query(
@@ -904,6 +910,15 @@ class AutonomousCrawler {
     );
 
     logger.info(`Updated test run stats: ${this.pagesDiscovered} pages, ${totalTestCases} test cases, ${coveragePercentage.toFixed(2)}% coverage`);
+  }
+
+  /**
+   * Stop the crawler
+   */
+  async stop() {
+    logger.info('Stop requested for crawler');
+    this.shouldStop = true;
+    await this.updateTestRunStats();
   }
 
   /**

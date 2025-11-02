@@ -272,14 +272,16 @@ export default function TestRunDetails() {
     }
   };
 
-  const handleStopCrawlingAndGenerate = async () => {
+  const handleStopCrawling = async () => {
     if (!testRun) return;
-    
+
     setStoppingCrawler(true);
     try {
-      await crawlerAPI.stopCrawlingAndGenerate(testRun.id);
+      await crawlerAPI.stopCrawling(testRun.id);
+      alert('Crawling stopped. Test cases will be available shortly.');
     } catch (error) {
       console.error('Error stopping crawler:', error);
+      alert('Failed to stop crawler. Please try again.');
     } finally {
       setStoppingCrawler(false);
     }
@@ -430,9 +432,9 @@ export default function TestRunDetails() {
         </div>
         <div className="flex items-center space-x-3">
           {/* Crawler Control Buttons */}
-          {(crawlerProgress?.canStopCrawling || testRun.status === 'running') && (
+          {testRun.status === 'running' && (
             <button
-              onClick={handleStopCrawlingAndGenerate}
+              onClick={handleStopCrawling}
               disabled={stoppingCrawler}
               className="inline-flex items-center px-4 py-2 border border-orange-300 text-sm font-medium rounded-md shadow-sm text-orange-700 bg-orange-50 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
             >
@@ -441,7 +443,7 @@ export default function TestRunDetails() {
               ) : (
                 <Square className="h-4 w-4 mr-2" />
               )}
-              {stoppingCrawler ? 'Stopping...' : 'Stop & Generate Tests'}
+              {stoppingCrawler ? 'Stopping...' : 'Stop Crawling'}
             </button>
           )}
           
@@ -532,9 +534,9 @@ export default function TestRunDetails() {
               </div>
             </div>
             
-            {crawlerProgress.phase === 'crawling' && crawlerProgress.canStopCrawling && (
+            {crawlerProgress.phase === 'crawling' && (
               <p className="text-sm text-gray-500 mt-2">
-                💡 You can stop crawling at any time and proceed directly to test generation with the pages already discovered.
+                💡 You can stop crawling at any time. Test cases are generated automatically for each discovered page.
               </p>
             )}
             

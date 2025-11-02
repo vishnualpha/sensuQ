@@ -103,17 +103,22 @@ router.post('/stop/:testRunId', async (req, res) => {
 
     const crawler = global.activeCrawlers.get(parseInt(testRunId));
     if (crawler) {
+      // Call stop method which will update stats and set status
+      await crawler.stop();
       await crawler.cleanup();
       global.activeCrawlers.delete(parseInt(testRunId));
+
+      res.json({ message: 'Crawling stopped successfully' });
+    } else {
+      // Crawler not found in active list, update database
+      await pool.query(`
+        UPDATE test_runs
+        SET status = 'ready_for_execution', end_time = CURRENT_TIMESTAMP
+        WHERE id = $1 AND created_by = $2
+      `, [testRunId, req.user.id]);
+
+      res.json({ message: 'Crawling stopped successfully' });
     }
-
-    await pool.query(`
-      UPDATE test_runs
-      SET status = 'completed', end_time = CURRENT_TIMESTAMP
-      WHERE id = $1 AND created_by = $2
-    `, [testRunId, req.user.id]);
-
-    res.json({ message: 'Crawling stopped successfully' });
   } catch (error) {
     console.error('Error stopping crawler:', error);
     res.status(500).json({ error: 'Failed to stop crawling' });
