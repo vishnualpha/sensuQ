@@ -763,8 +763,10 @@ export default function TestRunDetails() {
                                 <div className="mt-3 p-3 bg-gray-50 rounded">
                                   <p className="text-sm font-medium text-gray-700 mb-2">Test Steps:</p>
                                   <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
-                                    {testResult.test_steps.map((step: string, stepIdx: number) => (
-                                      <li key={stepIdx}>{step}</li>
+                                    {testResult.test_steps.map((step: any, stepIdx: number) => (
+                                      <li key={stepIdx}>
+                                        {typeof step === 'string' ? step : `${step.action}${step.target ? ` on ${step.target}` : ''}`}
+                                      </li>
                                     ))}
                                   </ol>
                                 </div>
