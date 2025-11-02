@@ -247,11 +247,13 @@ router.post('/execute/:testRunId', async (req, res) => {
     }
 
     // Create new test execution record
+    const defaultExecutionName = executionName || `${testRun.name} - ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+
     const executionResult = await pool.query(`
       INSERT INTO test_executions (test_run_id, execution_name, status, executed_by, total_test_cases)
       VALUES ($1, $2, 'running', $3, $4)
       RETURNING id
-    `, [testRunId, executionName || 'Manual Execution', req.user.id, selectedTestCaseIds.length]);
+    `, [testRunId, defaultExecutionName, req.user.id, selectedTestCaseIds.length]);
 
     const executionId = executionResult.rows[0].id;
     // Start test execution in background
