@@ -326,6 +326,8 @@ export default function TestRunDetails() {
   const [executionDetails, setExecutionDetails] = useState<Map<number, any>>(new Map());
   const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
   const [showPageGrouping, setShowPageGrouping] = useState(true);
+  const [selectedExecutionTests, setSelectedExecutionTests] = useState<Map<number, Set<number>>>(new Map());
+  const [rerunningExecution, setRerunningExecution] = useState<number | null>(null);
   const { socket } = useSocket();
 
   useEffect(() => {
@@ -593,6 +595,60 @@ export default function TestRunDetails() {
   };
 
   const testTypeCounts = getTestTypeCounts();
+
+  const handleToggleTestSelection = (executionId: number, testCaseId: number, checked: boolean) => {
+    const newMap = new Map(selectedExecutionTests);
+    const currentSet = newMap.get(executionId) || new Set();
+
+    if (checked) {
+      currentSet.add(testCaseId);
+    } else {
+      currentSet.delete(testCaseId);
+    }
+
+    newMap.set(executionId, currentSet);
+    setSelectedExecutionTests(newMap);
+  };
+
+  const handleSelectAllTests = (executionId: number, allTestIds: number[], checked: boolean) => {
+    const newMap = new Map(selectedExecutionTests);
+
+    if (checked) {
+      newMap.set(executionId, new Set(allTestIds));
+    } else {
+      newMap.set(executionId, new Set());
+    }
+
+    setSelectedExecutionTests(newMap);
+  };
+
+  const handleRerunExecution = async (executionId: number, testCaseIds: number[]) => {
+    if (!testRun || testCaseIds.length === 0) return;
+
+    try {
+      setRerunningExecution(executionId);
+
+      const executionName = `Rerun - ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+      const response = await crawlerAPI.executeTestsWithName(testRun.id, testCaseIds, executionName);
+
+      if (response.data) {
+        alert(`Started rerunning ${testCaseIds.length} test(s). Check the Execution History for results.`);
+
+        // Clear selections for this execution
+        const newMap = new Map(selectedExecutionTests);
+        newMap.set(executionId, new Set());
+        setSelectedExecutionTests(newMap);
+
+        // Refresh execution history
+        fetchExecutionHistory(testRun.id);
+      }
+    } catch (error: any) {
+      console.error('Error rerunning tests:', error);
+      alert(error.response?.data?.error || 'Failed to rerun tests');
+    } finally {
+      setRerunningExecution(null);
+    }
+  };
 
   // Group test cases by page
   const getGroupedTestCases = () => {
@@ -896,6 +952,9 @@ export default function TestRunDetails() {
                 {executionHistory.map((execution) => {
                   const isExpanded = expandedExecutions.has(execution.id);
                   const details = executionDetails.get(execution.id);
+                  const selectedTests = selectedExecutionTests.get(execution.id) || new Set();
+                  const allTestIds = details?.testCaseResults?.map((t: any) => t.test_case_id) || [];
+                  const isAllSelected = allTestIds.length > 0 && allTestIds.every((id: number) => selectedTests.has(id));
 
                   return (
                     <div key={execution.id} className="border rounded-lg">
@@ -926,6 +985,27 @@ export default function TestRunDetails() {
                                 <span className="text-yellow-600 ml-2">{execution.flaky_tests} flaky</span>
                               )}
                             </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRerunExecution(execution.id, allTestIds);
+                              }}
+                              disabled={rerunningExecution === execution.id}
+                              className="btn-secondary flex items-center space-x-1 text-sm py-1 px-3"
+                              title="Rerun all tests from this execution"
+                            >
+                              {rerunningExecution === execution.id ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                                  <span>Rerunning...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="h-3 w-3" />
+                                  <span>Rerun All</span>
+                                </>
+                              )}
+                            </button>
                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                               execution.status === 'completed' ? 'bg-green-100 text-green-800' :
                               execution.status === 'failed' ? 'bg-red-100 text-red-800' :
@@ -940,10 +1020,49 @@ export default function TestRunDetails() {
 
                       {isExpanded && details && (
                         <div className="border-t p-4 bg-gray-50 space-y-3">
-                          <h5 className="font-medium text-gray-900 mb-3">Test Case Results:</h5>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center space-x-3">
+                              <h5 className="font-medium text-gray-900">Test Case Results:</h5>
+                              <label className="flex items-center space-x-2 text-sm text-gray-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={isAllSelected}
+                                  onChange={(e) => handleSelectAllTests(execution.id, allTestIds, e.target.checked)}
+                                  className="rounded border-gray-300"
+                                />
+                                <span>Select All</span>
+                              </label>
+                            </div>
+                            {selectedTests.size > 0 && (
+                              <button
+                                onClick={() => handleRerunExecution(execution.id, Array.from(selectedTests))}
+                                disabled={rerunningExecution === execution.id}
+                                className="btn-primary flex items-center space-x-1 text-sm py-1 px-3"
+                              >
+                                {rerunningExecution === execution.id ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                                    <span>Rerunning...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="h-3 w-3" />
+                                    <span>Rerun Selected ({selectedTests.size})</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
                           {details.testCaseResults && details.testCaseResults.map((testResult: any, idx: number) => (
                             <div key={idx} className="bg-white rounded-lg p-4 border">
                               <div className="flex items-center justify-between mb-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedTests.has(testResult.test_case_id)}
+                                  onChange={(e) => handleToggleTestSelection(execution.id, testResult.test_case_id, e.target.checked)}
+                                  className="rounded border-gray-300 mr-3"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
                                 <div className="flex-1">
                                   <div className="flex items-center space-x-2">
                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${
