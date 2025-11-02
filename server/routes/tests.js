@@ -150,10 +150,31 @@ router.get('/executions/:id', async (req, res) => {
       if (result.actual_result) {
         try {
           const parsed = JSON.parse(result.actual_result);
-          if (parsed.status === 'passed') {
+
+          // Handle array of step results
+          if (Array.isArray(parsed)) {
+            // Check if all steps passed
+            const allPassed = parsed.every(step => step.status === 'passed');
+
+            if (allPassed) {
+              formattedActualResult = 'All test steps completed successfully';
+            } else {
+              // Find the first error
+              const errorStep = parsed.find(step => step.status === 'error');
+              if (errorStep && errorStep.description) {
+                formattedActualResult = errorStep.description;
+              } else {
+                formattedActualResult = 'Test completed with errors';
+              }
+            }
+          }
+          // Handle single result object
+          else if (parsed.status === 'passed') {
             formattedActualResult = 'Test verification completed successfully';
           } else if (parsed.errorDetails) {
             formattedActualResult = parsed.errorDetails;
+          } else if (parsed.description) {
+            formattedActualResult = parsed.description;
           }
         } catch (e) {
           // If not JSON, keep as is

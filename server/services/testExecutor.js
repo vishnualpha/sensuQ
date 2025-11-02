@@ -258,7 +258,7 @@ class TestExecutor {
           }
 
         } catch (error) {
-          status = 'failed';
+          status = 'error';
           errorDetails = error.message;
 
           // Capture error screenshot
@@ -274,14 +274,15 @@ class TestExecutor {
             logger.warn('Failed to capture error screenshot');
           }
 
-          // Attempt self-healing
+          // Attempt self-healing (but don't change status to passed)
           try {
             await this.handlePopupsAndModals(page);
             await this.attemptSelfHealing(page, testCase);
-            status = 'passed';
-            errorDetails = null;
+            // Self-healing succeeded, mark as failed but note the healing
+            status = 'failed';
           } catch (healingError) {
-            // Self-healing failed
+            // Self-healing also failed
+            status = 'failed';
           }
         }
 
