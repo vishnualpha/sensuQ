@@ -1,14 +1,27 @@
-const { Anthropic } = require('@anthropic-ai/sdk');
+const axios = require('axios');
 const logger = require('../utils/logger');
 const promptLoader = require('../utils/promptLoader');
 const pool = require('../config/database');
+const { decrypt } = require('../utils/encryption');
 
 class IntelligentInteractionPlanner {
-  constructor(testConfig) {
-    this.testConfig = testConfig;
-    this.client = new Anthropic({
-      apiKey: testConfig.anthropic_api_key || process.env.ANTHROPIC_API_KEY
-    });
+  constructor(llmConfig) {
+    this.config = llmConfig;
+
+    if (llmConfig.api_key) {
+      this.apiKey = decrypt(llmConfig.api_key);
+      if (!this.apiKey) {
+        logger.error('Failed to decrypt LLM API key');
+      }
+    } else {
+      this.apiKey = null;
+      logger.warn('No LLM API key provided');
+    }
+
+    this.apiUrl = llmConfig.api_url || 'https://api.openai.com/v1/chat/completions';
+    this.modelName = llmConfig.model_name || 'gpt-4o';
+
+    logger.info(`IntelligentInteractionPlanner initialized: model=${this.modelName}`);
   }
 
   async generateScenarios(pageId, testRunId, url, title, screenName, pageType, screenshotBase64, pageSource, interactiveElements) {
@@ -23,31 +36,41 @@ class IntelligentInteractionPlanner {
         interactiveElements
       );
 
-      const response = await this.client.messages.create({
-        model: this.testConfig.llm_model || 'claude-3-5-sonnet-20241022',
-        max_tokens: 4000,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: 'image/png',
-                  data: screenshotBase64
-                }
-              },
-              {
-                type: 'text',
-                text: prompt
+      const messages = [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/png;base64,${screenshotBase64}`
               }
-            ]
-          }
-        ]
-      });
+            },
+            {
+              type: 'text',
+              text: prompt
+            }
+          ]
+        }
+      ];
 
-      const responseText = response.content[0].text;
+      const response = await axios.post(
+        this.apiUrl,
+        {
+          model: this.modelName,
+          messages: messages,
+          max_tokens: 4000,
+          temperature: 0.7
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`
+          }
+        }
+      );
+
+      const responseText = response.data.choices[0].message.content;
       logger.info('LLM response received for scenario generation');
 
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
