@@ -1,9 +1,11 @@
 const logger = require('../utils/logger');
+const SmartFormFiller = require('./smartFormFiller');
 
 class IntelligentInteractionHandler {
   constructor(testGenerator, config) {
     this.testGenerator = testGenerator;
     this.config = config;
+    this.formFiller = new SmartFormFiller();
   }
 
   async handlePageObstacles(page, analysis) {
@@ -188,19 +190,37 @@ class IntelligentInteractionHandler {
           return true;
 
         case 'fill':
-          const fillValue = value || this.generateContextualValue(interaction, selector);
-          await element.fill(fillValue, { timeout: 5000 });
-          logger.info(`✅ Successfully filled ${selector} with: ${fillValue}`);
-          return true;
-
-        case 'select':
-          if (value) {
-            await element.selectOption(value, { timeout: 5000 });
-            logger.info(`✅ Successfully selected ${value} in: ${selector}`);
+          const fieldInfo = {
+            selector,
+            name: await element.getAttribute('name').catch(() => ''),
+            label: description || '',
+            placeholder: await element.getAttribute('placeholder').catch(() => '')
+          };
+          const fillResult = await this.formFiller.analyzeAndFillField(page, selector, fieldInfo);
+          if (fillResult.success) {
+            logger.info(`✅ Smart-filled ${selector} with: ${fillResult.value}`);
             return true;
           } else {
-            logger.warn(`No value provided for select interaction`);
-            return false;
+            const fallbackValue = value || this.generateContextualValue(interaction, selector);
+            await element.fill(fallbackValue, { timeout: 5000 });
+            logger.info(`✅ Fallback filled ${selector} with: ${fallbackValue}`);
+            return true;
+          }
+
+        case 'select':
+          try {
+            const selectResult = await this.formFiller.fillSelectField(page, selector, element);
+            logger.info(`✅ Smart-selected option in: ${selector}`);
+            return true;
+          } catch (selectError) {
+            if (value) {
+              await element.selectOption(value, { timeout: 5000 });
+              logger.info(`✅ Fallback selected ${value} in: ${selector}`);
+              return true;
+            } else {
+              logger.warn(`No value provided for select interaction`);
+              return false;
+            }
           }
 
         case 'submit':

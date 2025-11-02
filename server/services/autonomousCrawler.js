@@ -4,6 +4,7 @@ const { VisionElementIdentifier } = require('./visionElementIdentifier');
 const { PageLevelTestGenerator } = require('./pageLevelTestGenerator');
 const { FlowLevelTestGenerator } = require('./flowLevelTestGenerator');
 const IntelligentInteractionPlanner = require('./intelligentInteractionPlanner');
+const SPAStateDetector = require('./spaStateDetector');
 const { pool } = require('../config/database');
 
 /**
@@ -19,6 +20,7 @@ class AutonomousCrawler {
     this.pageTestGenerator = new PageLevelTestGenerator(llmConfig);
     this.flowTestGenerator = new FlowLevelTestGenerator(llmConfig);
     this.interactionPlanner = new IntelligentInteractionPlanner(llmConfig);
+    this.stateDetector = new SPAStateDetector();
 
     this.browser = null;
     this.context = null;
@@ -29,6 +31,7 @@ class AutonomousCrawler {
     this.currentDepth = 0;
     this.pagesDiscovered = 0;
     this.pathSequence = 0;
+    this.virtualPageCounter = 0;
   }
 
   /**
@@ -346,13 +349,15 @@ class AutonomousCrawler {
 
       logger.info(`📋 Executing ${scenario.steps.length} steps for scenario: "${scenario.name}"`);
 
+      await this.stateDetector.captureStateSnapshot(this.page, 'before_scenario');
+
       for (let i = 0; i < scenario.steps.length; i++) {
         const step = scenario.steps[i];
         logger.info(`  Step ${i + 1}: ${step.action} on ${step.elementType} - "${step.textContent || step.selector}"`);
 
         try {
           await this.executeScenarioStep(step);
-          await this.page.waitForTimeout(1000);
+          await this.stateDetector.waitForStateSettlement(this.page);
         } catch (stepError) {
           logger.warn(`  ❌ Step ${i + 1} failed: ${stepError.message}`);
           lastStepError = stepError.message;
@@ -362,6 +367,18 @@ class AutonomousCrawler {
       }
 
       const endUrl = this.page.url();
+
+      const stateChange = await this.stateDetector.detectStateChange(
+        this.page,
+        'before_scenario',
+        'after_scenario',
+        scenario.name
+      );
+
+      if (stateChange.significant && endUrl === startUrl) {
+        logger.info(`  🎭 SPA State Change Detected: ${stateChange.changes.changeType}`);
+        await this.handleVirtualPage(stateChange.virtualPage, currentPageId, currentDepth);
+      }
 
       const scenarioResult = await pool.query(
         'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
@@ -610,6 +627,61 @@ class AutonomousCrawler {
          WHERE id = $1`,
         [item.id, error.message]
       );
+    }
+  }
+
+  /**
+   * Handle virtual page (SPA state change)
+   */
+  async handleVirtualPage(virtualPage, parentPageId, depth) {
+    try {
+      this.virtualPageCounter++;
+      const virtualUrl = `${virtualPage.baseUrl}#virtual-${this.virtualPageCounter}`;
+
+      logger.info(`  💾 Saving virtual page: ${virtualPage.stateIdentifier}`);
+
+      const screenshot = await this.page.screenshot({ encoding: 'base64', fullPage: false });
+      const pageSource = await this.page.content();
+
+      const result = await pool.query(
+        `INSERT INTO discovered_pages
+         (test_run_id, url, title, screen_name, page_type, elements_count, screenshot_path, page_source, crawl_depth,
+          is_virtual, state_identifier, triggered_by_action, parent_page_id, state_metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING id`,
+        [
+          this.testRunId,
+          virtualUrl,
+          `Virtual: ${virtualPage.changeType}`,
+          virtualPage.stateIdentifier,
+          virtualPage.changeType,
+          0,
+          `virtual_${this.virtualPageCounter}.png`,
+          pageSource,
+          depth,
+          true,
+          virtualPage.stateIdentifier,
+          virtualPage.triggeredBy,
+          parentPageId,
+          JSON.stringify(virtualPage.changes)
+        ]
+      );
+
+      const virtualPageId = result.rows[0].id;
+      logger.info(`  ✅ Virtual page saved with ID: ${virtualPageId}`);
+
+      await this.interactionPlanner.generateScenariosForPage(virtualPageId, {
+        url: virtualUrl,
+        title: `Virtual: ${virtualPage.changeType}`,
+        pageType: virtualPage.changeType,
+        screenshot,
+        pageSource
+      });
+
+      return virtualPageId;
+    } catch (error) {
+      logger.error(`Failed to handle virtual page: ${error.message}`);
+      return null;
     }
   }
 
