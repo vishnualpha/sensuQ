@@ -670,13 +670,17 @@ class AutonomousCrawler {
       const virtualPageId = result.rows[0].id;
       logger.info(`  ✅ Virtual page saved with ID: ${virtualPageId}`);
 
-      await this.interactionPlanner.generateScenariosForPage(virtualPageId, {
-        url: virtualUrl,
-        title: `Virtual: ${virtualPage.changeType}`,
-        pageType: virtualPage.changeType,
+      await this.interactionPlanner.generateScenarios(
+        virtualPageId,
+        this.testRunId,
+        virtualUrl,
+        `Virtual: ${virtualPage.changeType}`,
+        `Virtual: ${virtualPage.changeType}`,
+        virtualPage.changeType,
         screenshot,
-        pageSource
-      });
+        pageSource,
+        []
+      );
 
       return virtualPageId;
     } catch (error) {
