@@ -58,15 +58,24 @@ function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCa
 
   if (!steps || steps.length === 0) return null;
 
+  // Check if step results are available for ANY step
+  const hasStepResults = stepResults.length > 0;
+
   return (
     <div className="mb-3">
+      {!hasStepResults && !loading && (
+        <div className="text-xs text-gray-500 italic mb-2 p-2 bg-gray-50 rounded border border-gray-200">
+          Note: Detailed step-by-step results are not available for this test execution.
+          Step tracking will be available for new test runs.
+        </div>
+      )}
       <div className="mt-2 space-y-2">
         {loading ? (
           <div className="text-sm text-gray-500">Loading step results...</div>
         ) : (
           steps.map((step: any, stepIndex: number) => {
             const stepResult = stepResults.find((r) => r.step_index === stepIndex);
-            const status = stepResult?.status || 'pending';
+            const status = stepResult?.status || (hasStepResults ? 'pending' : null);
 
             return (
               <div
@@ -94,18 +103,20 @@ function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCa
                           SELF-HEALED
                         </span>
                       )}
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
-                        status === 'passed'
-                          ? 'bg-green-100 text-green-800'
-                          : status === 'failed'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {status === 'passed' && <CheckCircle className="h-3 w-3 mr-1" />}
-                        {status === 'failed' && <XCircle className="h-3 w-3 mr-1" />}
-                        {status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
-                        {status.toUpperCase()}
-                      </span>
+                      {status && (
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                          status === 'passed'
+                            ? 'bg-green-100 text-green-800'
+                            : status === 'failed'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {status === 'passed' && <CheckCircle className="h-3 w-3 mr-1" />}
+                          {status === 'failed' && <XCircle className="h-3 w-3 mr-1" />}
+                          {status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                          {status.toUpperCase()}
+                        </span>
+                      )}
                     </div>
                   </div>
                   {step.selector && (
