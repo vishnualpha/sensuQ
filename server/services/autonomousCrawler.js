@@ -177,6 +177,9 @@ class AutonomousCrawler {
 
       await this.page.waitForTimeout(2000); // Wait for dynamic content
 
+      // Proactively dismiss popups/modals before analyzing the page
+      await this.handlePopupsAndModals(this.page);
+
       this.visitedUrls.add(url);
       this.pagesDiscovered++;
 
@@ -1007,6 +1010,119 @@ class AutonomousCrawler {
   /**
    * Cleanup resources
    */
+  async handlePopupsAndModals(page) {
+    try {
+      logger.info('Checking for popups/modals');
+
+      // Wait a moment for popups to appear
+      await page.waitForTimeout(1500);
+
+      // Try to dismiss modals
+      await this.dismissModals(page);
+
+      // Try to accept cookies
+      await this.acceptCookies(page);
+
+      // Try to dismiss notifications
+      await this.dismissNotifications(page);
+
+      logger.info('Completed popup/modal handling');
+    } catch (error) {
+      logger.debug(`Popup handling: ${error.message}`);
+    }
+  }
+
+  async dismissModals(page) {
+    const closeSelectors = [
+      'button:has-text("×")',
+      'button:has-text("✕")',
+      'button:has-text("Close")',
+      '[class*="close"]',
+      '[class*="dismiss"]',
+      '[aria-label*="close" i]',
+      '.modal-close',
+      '[data-dismiss="modal"]'
+    ];
+
+    for (const selector of closeSelectors) {
+      try {
+        const elements = await page.$$(selector);
+        for (const element of elements) {
+          const isVisible = await element.isVisible().catch(() => false);
+          if (isVisible) {
+            await element.click({ timeout: 2000 }).catch(() => {});
+            logger.info(`Dismissed modal using: ${selector}`);
+            await page.waitForTimeout(1000);
+            return;
+          }
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    // Try Escape key
+    try {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    } catch (error) {
+      // Ignore
+    }
+  }
+
+  async acceptCookies(page) {
+    const cookieSelectors = [
+      'button:has-text("Accept All")',
+      'button:has-text("Accept")',
+      'button:has-text("Allow All")',
+      '[class*="cookie"] button:has-text("Accept")',
+      '[id*="cookie-accept"]'
+    ];
+
+    for (const selector of cookieSelectors) {
+      try {
+        const element = await page.$(selector);
+        if (element) {
+          const isVisible = await element.isVisible().catch(() => false);
+          if (isVisible) {
+            await element.click({ timeout: 2000 }).catch(() => {});
+            logger.info(`Accepted cookies using: ${selector}`);
+            await page.waitForTimeout(1000);
+            return;
+          }
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+  }
+
+  async dismissNotifications(page) {
+    const notificationSelectors = [
+      'button:has-text("Not Now")',
+      'button:has-text("No Thanks")',
+      'button:has-text("Skip")',
+      '[class*="notification"] button:has-text("Close")'
+    ];
+
+    for (const selector of notificationSelectors) {
+      try {
+        const element = await page.$(selector);
+        if (element) {
+          const isVisible = await element.isVisible().catch(() => false);
+          if (isVisible) {
+            await element.click({ timeout: 2000 }).catch(() => {});
+            logger.info(`Dismissed notification using: ${selector}`);
+            await page.waitForTimeout(1000);
+            return;
+          }
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+  }
+
   async cleanup() {
     try {
       if (this.page) await this.page.close();

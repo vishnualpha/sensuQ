@@ -9,79 +9,131 @@ class IntelligentInteractionHandler {
   }
 
   async handlePageObstacles(page, analysis) {
-    const obstacles = analysis.obstacles || [];
-    logger.info(`Handling ${obstacles.length} obstacles on page`);
+    // Always attempt to close popups/modals proactively
+    logger.info('Proactively checking for and dismissing popups/modals');
+    await this.dismissAllObstacles(page);
 
-    for (const obstacle of obstacles) {
-      try {
-        if (obstacle.toLowerCase().includes('modal') || obstacle.toLowerCase().includes('popup')) {
-          await this.dismissModals(page);
-        } else if (obstacle.toLowerCase().includes('cookie')) {
-          await this.acceptCookies(page);
-        } else if (obstacle.toLowerCase().includes('notification')) {
-          await this.dismissNotifications(page);
+    // Also handle any obstacles identified by AI analysis
+    const obstacles = analysis.obstacles || [];
+    if (obstacles.length > 0) {
+      logger.info(`Handling ${obstacles.length} additional obstacles from analysis`);
+      for (const obstacle of obstacles) {
+        try {
+          if (obstacle.toLowerCase().includes('modal') || obstacle.toLowerCase().includes('popup')) {
+            await this.dismissModals(page);
+          } else if (obstacle.toLowerCase().includes('cookie')) {
+            await this.acceptCookies(page);
+          } else if (obstacle.toLowerCase().includes('notification')) {
+            await this.dismissNotifications(page);
+          }
+        } catch (error) {
+          logger.warn(`Error handling obstacle "${obstacle}": ${error.message}`);
         }
-      } catch (error) {
-        logger.warn(`Error handling obstacle "${obstacle}": ${error.message}`);
       }
+    }
+  }
+
+  async dismissAllObstacles(page) {
+    try {
+      // Wait a moment for any popups to appear
+      await page.waitForTimeout(2000);
+
+      // Try dismissing modals first
+      await this.dismissModals(page);
+
+      // Then try accepting cookies
+      await this.acceptCookies(page);
+
+      // Then dismiss notifications
+      await this.dismissNotifications(page);
+
+      // Finally, try overlay/backdrop clicks
+      await this.dismissOverlays(page);
+
+      logger.info('Completed proactive obstacle dismissal');
+    } catch (error) {
+      logger.warn(`Error in dismissAllObstacles: ${error.message}`);
     }
   }
 
   async dismissModals(page) {
     const closeSelectors = [
+      'button:has-text("×")',
+      'button:has-text("✕")',
+      'button:has-text("Close")',
       '[class*="close"]',
       '[class*="dismiss"]',
       '[aria-label*="close" i]',
-      'button:has-text("Close")',
-      'button:has-text("×")',
+      '[aria-label*="dismiss" i]',
       '.modal-close',
-      '[data-dismiss="modal"]'
+      '[data-dismiss="modal"]',
+      '[data-dismiss="popup"]',
+      'button[class*="modal"] [class*="close"]',
+      'button[class*="popup"] [class*="close"]',
+      '[role="dialog"] button:has-text("Close")',
+      '[role="dialog"] [aria-label*="close" i]'
     ];
+
+    let dismissed = false;
 
     for (const selector of closeSelectors) {
       try {
         const elements = await page.$$(selector);
         for (const element of elements) {
-          if (await element.isVisible()) {
-            await element.click({ timeout: 2000 });
+          const isVisible = await element.isVisible().catch(() => false);
+          if (isVisible) {
+            await element.click({ timeout: 2000 }).catch(() => {});
             logger.info(`Dismissed modal using: ${selector}`);
             await page.waitForTimeout(1000);
-            return;
+            dismissed = true;
+            break;
           }
         }
+        if (dismissed) break;
       } catch (error) {
         continue;
       }
     }
 
+    // Always try Escape key as fallback
     try {
       await page.keyboard.press('Escape');
-      logger.info('Pressed Escape to dismiss modal');
+      logger.info('Pressed Escape to dismiss any remaining modals');
       await page.waitForTimeout(500);
     } catch (error) {
-      logger.debug('Escape key did not dismiss modal');
+      logger.debug('Escape key press failed');
     }
   }
 
   async acceptCookies(page) {
     const cookieSelectors = [
-      'button:has-text("Accept")',
       'button:has-text("Accept All")',
+      'button:has-text("Accept")',
       'button:has-text("I Accept")',
+      'button:has-text("Allow All")',
+      'button:has-text("Allow")',
       'button:has-text("OK")',
       'button:has-text("Got it")',
+      'button:has-text("Agree")',
       '[class*="cookie"] button:has-text("Accept")',
-      '[id*="cookie-accept"]'
+      '[class*="consent"] button:has-text("Accept")',
+      '[id*="cookie-accept"]',
+      '[id*="accept-cookies"]',
+      '[data-testid*="cookie"] button',
+      '[data-testid*="consent"] button'
     ];
 
     for (const selector of cookieSelectors) {
       try {
         const element = await page.$(selector);
-        if (element && await element.isVisible()) {
-          await element.click({ timeout: 2000 });
-          logger.info(`Accepted cookies using: ${selector}`);
-          await page.waitForTimeout(1000);
-          return;
+        if (element) {
+          const isVisible = await element.isVisible().catch(() => false);
+          if (isVisible) {
+            await element.click({ timeout: 2000 }).catch(() => {});
+            logger.info(`Accepted cookies using: ${selector}`);
+            await page.waitForTimeout(1000);
+            return;
+          }
         }
       } catch (error) {
         continue;
@@ -95,21 +147,59 @@ class IntelligentInteractionHandler {
       'button:has-text("Maybe Later")',
       'button:has-text("No Thanks")',
       'button:has-text("Skip")',
-      '[class*="notification"] button:has-text("Close")'
+      'button:has-text("Dismiss")',
+      '[class*="notification"] button:has-text("Close")',
+      '[class*="banner"] button:has-text("Close")'
     ];
 
     for (const selector of notificationSelectors) {
       try {
         const element = await page.$(selector);
-        if (element && await element.isVisible()) {
-          await element.click({ timeout: 2000 });
-          logger.info(`Dismissed notification using: ${selector}`);
-          await page.waitForTimeout(1000);
-          return;
+        if (element) {
+          const isVisible = await element.isVisible().catch(() => false);
+          if (isVisible) {
+            await element.click({ timeout: 2000 }).catch(() => {});
+            logger.info(`Dismissed notification using: ${selector}`);
+            await page.waitForTimeout(1000);
+            return;
+          }
         }
       } catch (error) {
         continue;
       }
+    }
+  }
+
+  async dismissOverlays(page) {
+    try {
+      // Check for overlay/backdrop elements that might be blocking content
+      const overlaySelectors = [
+        '[class*="overlay"]',
+        '[class*="backdrop"]',
+        '[class*="modal-backdrop"]',
+        '[class*="popup-overlay"]',
+        '[role="presentation"]'
+      ];
+
+      for (const selector of overlaySelectors) {
+        try {
+          const elements = await page.$$(selector);
+          for (const element of elements) {
+            const isVisible = await element.isVisible().catch(() => false);
+            if (isVisible) {
+              // Try clicking the overlay (some dismiss on backdrop click)
+              await element.click({ timeout: 1000 }).catch(() => {});
+              logger.info(`Clicked overlay: ${selector}`);
+              await page.waitForTimeout(500);
+              break;
+            }
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+    } catch (error) {
+      logger.debug(`Error dismissing overlays: ${error.message}`);
     }
   }
 
