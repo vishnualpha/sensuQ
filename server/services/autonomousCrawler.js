@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const { VisionElementIdentifier } = require('./visionElementIdentifier');
 const { PageLevelTestGenerator } = require('./pageLevelTestGenerator');
 const { FlowLevelTestGenerator } = require('./flowLevelTestGenerator');
+const IntelligentInteractionPlanner = require('./intelligentInteractionPlanner');
 const { pool } = require('../config/database');
 
 /**
@@ -17,6 +18,7 @@ class AutonomousCrawler {
     this.visionIdentifier = new VisionElementIdentifier(llmConfig);
     this.pageTestGenerator = new PageLevelTestGenerator(llmConfig);
     this.flowTestGenerator = new FlowLevelTestGenerator(llmConfig);
+    this.interactionPlanner = new IntelligentInteractionPlanner(llmConfig);
 
     this.browser = null;
     this.context = null;
@@ -208,42 +210,32 @@ class AutonomousCrawler {
         await this.saveCrawlPath(fromPageId, pageId, interactionElementId, depth);
       }
 
+      // Generate interaction scenarios using LLM
+      const scenarios = await this.interactionPlanner.generateScenarios(
+        pageId,
+        this.testRunId,
+        url,
+        title,
+        analysis.screenName,
+        analysis.pageType,
+        screenshotBase64,
+        pageSource,
+        analysis.interactiveElements
+      );
+
+      logger.info(`🎯 Generated ${scenarios.length} meaningful interaction scenarios`);
+
       // Generate page-level tests
       await this.generatePageTests(pageId, url, analysis, analysis.interactiveElements);
 
-      // Try to interact with elements and crawl deeper
-      const interactableElements = analysis.interactiveElements.filter(
-        el => el.interaction_priority === 'high' || el.interaction_priority === 'medium'
-      );
-
-      logger.info(`Found ${interactableElements.length} interactable elements for deeper crawl`);
-
-      for (const element of interactableElements) {
+      // Execute scenarios instead of blind element clicking
+      for (const scenario of scenarios) {
         if (depth >= this.testConfig.max_depth || this.pagesDiscovered >= this.testConfig.max_pages) {
           break;
         }
 
-        const success = await this.interactWithElement(element, pageId, depth);
-
-        if (success) {
-          // Element interaction led to navigation or state change
-          // The recursive crawl happened inside interactWithElement
-        }
-      }
-
-      // Check if this is a dead-end page
-      const hasNavigableElements = interactableElements.some(
-        el => el.element_type === 'link' || el.element_type === 'button'
-      );
-
-      if (!hasNavigableElements) {
-        logger.info(`Dead-end page detected: ${url}`);
-        await this.markPageAsDeadEnd(pageId);
-
-        // Restart browser to crawl from beginning with different path
-        if (depth > 0) {
-          await this.restartBrowserForNewPath();
-        }
+        logger.info(`🎬 Executing scenario: "${scenario.name}"`);
+        await this.executeScenario(scenario, pageId, depth);
       }
 
     } catch (error) {
@@ -336,6 +328,133 @@ class AutonomousCrawler {
     } catch (error) {
       logger.warn(`Failed to interact with element: ${error.message}`);
       return false;
+    }
+  }
+
+  /**
+   * Execute an interaction scenario
+   */
+  async executeScenario(scenario, currentPageId, currentDepth) {
+    try {
+      const startUrl = this.page.url();
+      let scenarioSuccess = true;
+      let lastStepError = null;
+
+      logger.info(`📋 Executing ${scenario.steps.length} steps for scenario: "${scenario.name}"`);
+
+      for (let i = 0; i < scenario.steps.length; i++) {
+        const step = scenario.steps[i];
+        logger.info(`  Step ${i + 1}: ${step.action} on ${step.elementType} - "${step.textContent || step.selector}"`);
+
+        try {
+          await this.executeScenarioStep(step);
+          await this.page.waitForTimeout(1000);
+        } catch (stepError) {
+          logger.warn(`  ❌ Step ${i + 1} failed: ${stepError.message}`);
+          lastStepError = stepError.message;
+          scenarioSuccess = false;
+          break;
+        }
+      }
+
+      const endUrl = this.page.url();
+      let discoveredPageId = null;
+
+      if (endUrl !== startUrl && !this.visitedUrls.has(endUrl)) {
+        logger.info(`  ✅ Scenario led to new page: ${endUrl}`);
+
+        if (this.pagesDiscovered < this.testConfig.max_pages && currentDepth < this.testConfig.max_depth) {
+          await this.crawlPage(endUrl, currentPageId, null, currentDepth + 1);
+          const pageResult = await pool.query(
+            'SELECT id FROM discovered_pages WHERE url = $1 AND test_run_id = $2',
+            [endUrl, this.testRunId]
+          );
+          if (pageResult.rows.length > 0) {
+            discoveredPageId = pageResult.rows[0].id;
+          }
+        }
+
+        try {
+          await this.page.goBack({ waitUntil: 'networkidle', timeout: 10000 });
+          await this.page.waitForTimeout(1000);
+        } catch (backError) {
+          logger.warn(`  Cannot navigate back: ${backError.message}`);
+        }
+      } else if (endUrl === startUrl) {
+        logger.info(`  ℹ️ Scenario completed on same page (in-page interaction)`);
+      }
+
+      const scenarioResult = await pool.query(
+        'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
+        [currentPageId, scenario.name]
+      );
+
+      if (scenarioResult.rows.length > 0) {
+        await this.interactionPlanner.markScenarioExecuted(
+          scenarioResult.rows[0].id,
+          scenarioSuccess,
+          discoveredPageId,
+          lastStepError
+        );
+      }
+
+      return scenarioSuccess;
+
+    } catch (error) {
+      logger.error(`  ❌ Scenario execution failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Execute a single scenario step
+   */
+  async executeScenarioStep(step) {
+    const selector = step.selector;
+
+    await this.page.waitForSelector(selector, { timeout: 5000 });
+
+    const isVisible = await this.page.isVisible(selector);
+    if (!isVisible) {
+      throw new Error(`Element not visible: ${selector}`);
+    }
+
+    switch (step.action) {
+      case 'click':
+        await Promise.all([
+          this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}),
+          this.page.click(selector)
+        ]);
+        break;
+
+      case 'fill':
+        let fillValue = step.value || 'test data';
+
+        if (fillValue === '{auth_username}' && this.testConfig.auth_username) {
+          fillValue = this.testConfig.auth_username;
+        } else if (fillValue === '{auth_password}' && this.testConfig.auth_password) {
+          fillValue = this.testConfig.auth_password;
+        }
+
+        await this.page.fill(selector, fillValue);
+        break;
+
+      case 'select':
+        const options = await this.page.$$eval(`${selector} option`, opts => opts.map(o => o.value));
+        const valueToSelect = step.value || (options.length > 1 ? options[1] : options[0]);
+        await this.page.selectOption(selector, valueToSelect);
+        break;
+
+      case 'check':
+        await this.page.check(selector);
+        break;
+
+      case 'hover':
+        await this.page.hover(selector);
+        break;
+
+      default:
+        logger.warn(`Unknown action type: ${step.action}`);
     }
   }
 
