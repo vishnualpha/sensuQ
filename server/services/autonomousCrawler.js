@@ -454,17 +454,16 @@ class AutonomousCrawler {
    */
   async executeScenarioStep(step) {
     let selector = step.selector;
+    let elementFound = false;
 
     // Handle invalid Playwright locator syntax that LLM might generate
     if (selector.includes(':has-text(')) {
-      // Try to find element by text content as fallback
       const textMatch = selector.match(/:has-text\("([^"]+)"\)/);
       if (textMatch) {
         const textContent = textMatch[1];
         logger.warn(`Invalid selector syntax detected: ${selector}`);
         logger.info(`Attempting to find element by text: "${textContent}"`);
 
-        // Try to find the element using text content
         const locator = this.page.locator(`text="${textContent}"`);
         const count = await locator.count();
 
@@ -472,30 +471,58 @@ class AutonomousCrawler {
           throw new Error(`Element with text "${textContent}" not found`);
         }
 
-        // Use the first match
         const isVisible = await locator.first().isVisible();
         if (!isVisible) {
           throw new Error(`Element with text "${textContent}" not visible`);
         }
 
-        // Perform action using locator instead of selector
         return await this.executeStepWithLocator(step, locator.first());
       }
     }
 
-    await this.page.waitForSelector(selector, { timeout: 5000 });
+    // Try the provided selector first
+    try {
+      await this.page.waitForSelector(selector, { timeout: 5000 });
+      const isVisible = await this.page.isVisible(selector);
+      if (isVisible) {
+        elementFound = true;
+      }
+    } catch (e) {
+      logger.warn(`Selector not found: ${selector}`);
 
-    const isVisible = await this.page.isVisible(selector);
-    if (!isVisible) {
-      throw new Error(`Element not visible: ${selector}`);
+      // Try to find by text content if available
+      if (step.textContent) {
+        logger.info(`Attempting to find element by text: "${step.textContent}"`);
+        const alternatives = [
+          `text="${step.textContent}"`,
+          `button:has-text("${step.textContent}")`,
+          `a:has-text("${step.textContent}")`,
+          `input[placeholder*="${step.textContent}" i]`,
+          `[aria-label*="${step.textContent}" i]`
+        ];
+
+        for (const altSelector of alternatives) {
+          try {
+            const locator = this.page.locator(altSelector).first();
+            const count = await locator.count();
+            if (count > 0 && await locator.isVisible()) {
+              logger.info(`Found element using alternative: ${altSelector}`);
+              return await this.executeStepWithLocator(step, locator);
+            }
+          } catch (e2) {
+            continue;
+          }
+        }
+      }
+
+      throw new Error(`Element not found and no working alternative: ${selector}`);
     }
 
     switch (step.action) {
       case 'click':
-        await Promise.all([
-          this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}),
-          this.page.click(selector)
-        ]);
+      case 'check':
+        await this.smartClick(this.page, selector);
+        await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
         break;
 
       case 'fill':
@@ -507,17 +534,12 @@ class AutonomousCrawler {
           fillValue = this.testConfig.auth_password;
         }
 
-        await this.page.fill(selector, fillValue);
+        await this.smartFill(this.page, selector, fillValue);
         break;
 
       case 'select':
-        const options = await this.page.$$eval(`${selector} option`, opts => opts.map(o => o.value));
-        const valueToSelect = step.value || (options.length > 1 ? options[1] : options[0]);
-        await this.page.selectOption(selector, valueToSelect);
-        break;
-
-      case 'check':
-        await this.page.check(selector);
+        const valueToSelect = step.value || null;
+        await this.smartSelect(this.page, selector, valueToSelect);
         break;
 
       case 'hover':
@@ -1127,6 +1149,129 @@ class AutonomousCrawler {
       } catch (error) {
         continue;
       }
+    }
+  }
+
+  async smartClick(page, selector) {
+    try {
+      await page.click(selector, { timeout: 3000 });
+      logger.info(`Clicked: ${selector}`);
+      return true;
+    } catch (error) {
+      logger.warn(`Standard click failed, trying alternatives...`);
+
+      try {
+        await page.click(selector, { force: true, timeout: 3000 });
+        logger.info(`Force-clicked: ${selector}`);
+        return true;
+      } catch (e) {
+        try {
+          await page.$eval(selector, el => el.click());
+          logger.info(`JS-clicked: ${selector}`);
+          await page.waitForTimeout(500);
+          return true;
+        } catch (e2) {
+          throw new Error(`All click attempts failed for: ${selector}`);
+        }
+      }
+    }
+  }
+
+  async smartFill(page, selector, value) {
+    const initialDialogCount = await page.locator('[role="dialog"], [class*="modal"], [class*="dropdown"]').count();
+
+    try {
+      await page.click(selector, { timeout: 2000 });
+      await page.waitForTimeout(500);
+      logger.info(`Clicked field before filling: ${selector}`);
+    } catch (e) {
+      logger.debug(`Pre-click failed: ${e.message}`);
+    }
+
+    const newDialogCount = await page.locator('[role="dialog"], [class*="modal"], [class*="dropdown"], [class*="autocomplete"]').count();
+
+    if (newDialogCount > initialDialogCount) {
+      logger.info(`Field opened a search dialog/dropdown`);
+
+      const dialogInput = page.locator('[role="dialog"] input, [class*="modal"] input, [class*="dropdown"] input, [class*="autocomplete"] input').first();
+      const hasDialogInput = await dialogInput.count();
+
+      if (hasDialogInput > 0) {
+        try {
+          await dialogInput.fill(value, { timeout: 3000 });
+          logger.info(`Filled search dialog with: ${value}`);
+          await page.waitForTimeout(1000);
+
+          const firstOption = page.locator('[role="option"], [class*="option"], li[class*="item"]').first();
+          const hasOption = await firstOption.count();
+          if (hasOption > 0) {
+            await firstOption.click({ timeout: 2000 }).catch(() => {});
+            logger.info(`Selected first option from dialog`);
+          }
+          return true;
+        } catch (e) {
+          logger.debug(`Dialog fill failed: ${e.message}`);
+        }
+      }
+    }
+
+    try {
+      await page.fill(selector, value, { timeout: 3000 });
+      logger.info(`Filled: ${selector} = ${value}`);
+      return true;
+    } catch (e) {
+      try {
+        await page.click(selector, { timeout: 2000 });
+        await page.type(selector, value, { delay: 50 });
+        logger.info(`Typed: ${selector} = ${value}`);
+        return true;
+      } catch (e2) {
+        throw new Error(`All fill attempts failed for: ${selector}`);
+      }
+    }
+  }
+
+  async smartSelect(page, selector, value) {
+    try {
+      await page.click(selector, { timeout: 2000 });
+      await page.waitForTimeout(500);
+      logger.info(`Clicked select element: ${selector}`);
+
+      const options = page.locator('[role="option"], [class*="option"], li[class*="item"]');
+      const optionCount = await options.count();
+
+      if (optionCount > 0) {
+        logger.info(`Custom select opened with ${optionCount} options`);
+        if (value) {
+          const matchingOption = options.filter({ hasText: value }).first();
+          const hasMatch = await matchingOption.count();
+          if (hasMatch > 0) {
+            await matchingOption.click({ timeout: 2000 });
+            logger.info(`Selected custom option: ${value}`);
+            return true;
+          }
+        }
+        await options.first().click({ timeout: 2000 });
+        logger.info(`Selected first custom option`);
+        return true;
+      }
+    } catch (e) {
+      logger.debug(`Custom select handling failed: ${e.message}`);
+    }
+
+    try {
+      if (value) {
+        await page.selectOption(selector, value, { timeout: 3000 });
+      } else {
+        const optionElements = await page.$$(`${selector} option`);
+        if (optionElements.length > 1) {
+          await page.selectOption(selector, { index: 1 });
+        }
+      }
+      logger.info(`Selected: ${selector} = ${value}`);
+      return true;
+    } catch (e) {
+      throw new Error(`All select attempts failed for: ${selector}`);
     }
   }
 

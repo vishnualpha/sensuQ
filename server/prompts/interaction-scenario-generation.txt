@@ -60,14 +60,17 @@ Return a JSON object with this exact structure:
 1. CRITICAL: Only use the EXACT CSS selectors from the provided interactive elements list above
 2. DO NOT generate or invent new selectors - ONLY use selectors that are explicitly listed
 3. DO NOT use Playwright locator syntax like 'link:has-text("...")' or 'button:has-text("...")'
-4. ONLY use standard CSS selectors (e.g., '#id', '.class', 'button[aria-label="..."]')
-5. Each scenario should have 1-5 steps (grouped logically)
-6. Generate 3-8 scenarios per page (focus on quality over quantity)
-7. If you see login fields, create a login scenario
-8. If you see a search box, create a search scenario
-9. If you see forms, create form submission scenarios
-10. Set `leadsToNewPage: true` for navigation actions (links, submit buttons, navigation items)
-11. Set `leadsToNewPage: false` for in-page interactions (modals, dropdowns, accordions)
+4. DO NOT use aria-label in selectors unless it's explicitly listed in the interactive elements
+5. ONLY use standard CSS selectors (e.g., '#id', '.class', 'input[name="..."]', 'button[data-cy="..."]')
+6. Each scenario should have 1-5 steps (grouped logically)
+7. Generate 3-8 scenarios per page (focus on quality over quantity)
+8. If you see login fields, create a login scenario
+9. If you see a search box, create a search scenario
+10. If you see forms, create form submission scenarios
+11. Set `leadsToNewPage: true` for navigation actions (links, submit buttons, navigation items)
+12. Set `leadsToNewPage: false` for in-page interactions (modals, dropdowns, accordions)
+13. VERIFY each selector you use exists in the interactive elements list before including it
+14. If an element has an ID, prefer the ID selector (e.g., '#fromCity' not '[aria-label="From"]')
 
 # Examples
 
