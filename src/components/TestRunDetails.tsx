@@ -179,13 +179,18 @@ export default function TestRunDetails() {
   useEffect(() => {
     if (socket && id) {
       const handleCrawlerProgress = (data: any) => {
+        console.log('🔔 Received crawlerProgress event:', data);
         if (data.testRunId === parseInt(id!)) {
+          console.log('✅ Progress update matches current test run:', data);
           setCrawlerProgress(data);
-          
+
           // Refresh test run details when crawling/generation completes
           if (data.phase === 'ready' || data.percentage === 100) {
+            console.log('🎉 Crawling completed, refreshing test run details');
             setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
           }
+        } else {
+          console.log('⏭️ Progress update for different test run, ignoring');
         }
       };
 

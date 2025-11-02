@@ -43,11 +43,35 @@ class AutonomousCrawler {
 
       logger.info(`Crawl completed. Discovered ${this.pagesDiscovered} pages`);
 
+      // Emit test generation phase
+      if (this.io) {
+        this.io.emit('crawlerProgress', {
+          testRunId: this.testRunId,
+          phase: 'generating',
+          discoveredPagesCount: this.pagesDiscovered,
+          message: 'Generating test cases from discovered pages...',
+          percentage: 90,
+          canStopCrawling: false
+        });
+      }
+
       // Generate flow-level tests after crawl completes
       logger.info('Generating flow-level tests from crawl paths...');
       await this.flowTestGenerator.generateFlows(this.testRunId);
 
       await this.updateTestRunStats();
+
+      // Emit completion
+      if (this.io) {
+        this.io.emit('crawlerProgress', {
+          testRunId: this.testRunId,
+          phase: 'completed',
+          discoveredPagesCount: this.pagesDiscovered,
+          message: 'Crawling and test generation completed!',
+          percentage: 100,
+          canStopCrawling: false
+        });
+      }
 
       return {
         success: true,
@@ -133,13 +157,20 @@ class AutonomousCrawler {
 
       // Emit progress update via socket.io
       if (this.io) {
-        this.io.emit('crawl:progress', {
+        const percentage = Math.min((this.pagesDiscovered / this.testConfig.max_pages) * 100, 100);
+        const progressData = {
           testRunId: this.testRunId,
-          pagesDiscovered: this.pagesDiscovered,
+          phase: 'crawling',
+          discoveredPagesCount: this.pagesDiscovered,
           maxPages: this.testConfig.max_pages,
+          message: `Discovered ${this.pagesDiscovered}/${this.testConfig.max_pages} pages - Currently on: ${url}`,
+          percentage: percentage,
+          canStopCrawling: this.pagesDiscovered > 0,
           currentUrl: url,
           depth: depth
-        });
+        };
+        logger.info(`📡 Emitting crawlerProgress: ${JSON.stringify(progressData)}`);
+        this.io.emit('crawlerProgress', progressData);
       }
 
       // Capture page data
