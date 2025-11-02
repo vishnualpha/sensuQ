@@ -41,15 +41,15 @@ router.get('/runs/:id', async (req, res) => {
 
     // Get discovered pages
     const pagesResult = await pool.query(`
-      SELECT * FROM discovered_pages 
-      WHERE test_run_id = $1 
+      SELECT * FROM discovered_pages
+      WHERE test_run_id = $1
       ORDER BY discovered_at
     `, [id]);
 
     // Get test cases
     const casesResult = await pool.query(`
-      SELECT * FROM test_cases 
-      WHERE test_run_id = $1 
+      SELECT * FROM test_cases
+      WHERE test_run_id = $1
       ORDER BY executed_at
     `, [id]);
 
@@ -61,6 +61,27 @@ router.get('/runs/:id', async (req, res) => {
   } catch (error) {
     console.error('Error fetching test run details:', error);
     res.status(500).json({ error: 'Failed to fetch test run details' });
+  }
+});
+
+// Get step results for a test case
+router.get('/cases/:id/steps', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      SELECT tsr.*
+      FROM test_step_results tsr
+      JOIN test_cases tc ON tsr.test_case_id = tc.id
+      JOIN test_runs tr ON tc.test_run_id = tr.id
+      WHERE tsr.test_case_id = $1 AND tr.created_by = $2
+      ORDER BY tsr.step_index
+    `, [id, req.user.id]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching test step results:', error);
+    res.status(500).json({ error: 'Failed to fetch test step results' });
   }
 });
 

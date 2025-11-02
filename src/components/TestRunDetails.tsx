@@ -21,6 +21,104 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
+// Component to display test step results with pass/fail status
+function TestStepResults({ testCaseId, testSteps }: { testCaseId: number; testSteps: any }) {
+  const [stepResults, setStepResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (expanded && testCaseId) {
+      loadStepResults();
+    }
+  }, [expanded, testCaseId]);
+
+  const loadStepResults = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`http://localhost:3001/api/tests/cases/${testCaseId}/steps`);
+      if (response.ok) {
+        const data = await response.json();
+        setStepResults(data);
+      }
+    } catch (error) {
+      console.error('Failed to load step results:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const steps = React.useMemo(() => {
+    try {
+      return typeof testSteps === 'string' ? JSON.parse(testSteps) : testSteps || [];
+    } catch {
+      return [];
+    }
+  }, [testSteps]);
+
+  if (!steps || steps.length === 0) return null;
+
+  return (
+    <div className="mb-3">
+      <details className="group" open={expanded} onToggle={(e) => setExpanded(e.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
+          View Test Steps ({steps.length} steps)
+        </summary>
+        <div className="mt-2 space-y-1">
+          {loading ? (
+            <div className="text-sm text-gray-500">Loading step results...</div>
+          ) : (
+            steps.map((step: any, stepIndex: number) => {
+              const stepResult = stepResults.find((r) => r.step_index === stepIndex);
+              const status = stepResult?.status || 'pending';
+
+              return (
+                <div
+                  key={stepIndex}
+                  className={`flex items-start p-2 rounded border ${
+                    status === 'passed'
+                      ? 'bg-green-50 border-green-200'
+                      : status === 'failed'
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-gray-50 border-gray-200'
+                  }`}
+                >
+                  <div className="flex-shrink-0 mr-2">
+                    {status === 'passed' && <CheckCircle className="h-4 w-4 text-green-600" />}
+                    {status === 'failed' && <XCircle className="h-4 w-4 text-red-600" />}
+                    {status === 'pending' && <Clock className="h-4 w-4 text-gray-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-xs text-gray-600">Step {stepIndex + 1}</span>
+                      <span className="text-sm text-gray-700">{step.description || step.action}</span>
+                    </div>
+                    {step.selector && (
+                      <code className="block mt-1 px-2 py-1 bg-white rounded text-xs text-gray-600 border">
+                        {step.selector}
+                      </code>
+                    )}
+                    {stepResult?.error_message && (
+                      <div className="mt-1 text-xs text-red-600 bg-red-100 p-1 rounded">
+                        {stepResult.error_message}
+                      </div>
+                    )}
+                    {stepResult?.execution_time !== undefined && (
+                      <div className="mt-1 text-xs text-gray-500">
+                        {stepResult.execution_time}ms
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 // Component to handle screenshot loading with base64 data URLs
 function ScreenshotImage({ pageId, filename, alt }: { pageId?: number; filename?: string; alt: string }) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -1186,45 +1284,8 @@ export default function TestRunDetails() {
                           <h4 className="font-medium text-gray-900 mb-1">{testCase.test_name}</h4>
                           <p className="text-sm text-gray-600 mb-3">{testCase.test_description}</p>
                           
-                          {/* Test Steps */}
-                          {testCase.test_steps && (
-                            <div className="mb-3">
-                              <details className="group">
-                                <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
-                                  View Test Steps ({(() => {
-                                    try {
-                                      const steps = typeof testCase.test_steps === 'string' 
-                                        ? JSON.parse(testCase.test_steps) 
-                                        : testCase.test_steps || [];
-                                      return Array.isArray(steps) ? steps.length : 0;
-                                    } catch {
-                                      return 0;
-                                    }
-                                  })()} steps)
-                                </summary>
-                                <div className="mt-2 pl-4 border-l-2 border-gray-200">
-                                  {(() => {
-                                    try {
-                                      const steps = typeof testCase.test_steps === 'string' 
-                                        ? JSON.parse(testCase.test_steps) 
-                                        : testCase.test_steps || [];
-                                      return Array.isArray(steps) ? steps : [];
-                                    } catch {
-                                      return [];
-                                    }
-                                  })().map((step, stepIndex) => (
-                                    <div key={stepIndex} className="mb-2 text-sm">
-                                      <span className="font-medium text-gray-600">{stepIndex + 1}.</span>
-                                      <span className="ml-2 text-gray-700">{step.description || step.action}</span>
-                                      {step.selector && (
-                                        <code className="ml-2 px-1 py-0.5 bg-gray-100 rounded text-xs">{step.selector}</code>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              </details>
-                            </div>
-                          )}
+                          {/* Test Steps with Results */}
+                          <TestStepResults testCaseId={testCase.id} testSteps={testCase.test_steps} />
                         </div>
                         
                         {/* Status and Actions */}

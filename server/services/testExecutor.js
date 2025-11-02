@@ -241,20 +241,53 @@ class TestExecutor {
 
           for (let i = 0; i < testCase.steps.length; i++) {
             const step = testCase.steps[i];
-            await this.executeTestStep(page, step);
+            const stepStartTime = Date.now();
+            let stepStatus = 'passed';
+            let stepError = null;
 
-            // Capture screenshot after each step
-            const stepScreenshot = await page.screenshot({ fullPage: false });
-            screenshots.push({
-              step: i + 1,
-              action: step.action,
-              description: step.description || `${step.action} ${step.selector || ''}`,
-              timestamp: new Date().toISOString(),
-              data: stepScreenshot.toString('base64')
-            });
+            try {
+              await this.executeTestStep(page, step);
 
-            // Small delay to let animations complete
-            await page.waitForTimeout(500);
+              // Capture screenshot after each step
+              const stepScreenshot = await page.screenshot({ fullPage: false });
+              screenshots.push({
+                step: i + 1,
+                action: step.action,
+                description: step.description || `${step.action} ${step.selector || ''}`,
+                timestamp: new Date().toISOString(),
+                data: stepScreenshot.toString('base64')
+              });
+
+              // Small delay to let animations complete
+              await page.waitForTimeout(500);
+
+            } catch (stepExecutionError) {
+              stepStatus = 'failed';
+              stepError = stepExecutionError.message;
+
+              // Capture error screenshot for this step
+              try {
+                const errorScreenshot = await page.screenshot({ fullPage: false });
+                screenshots.push({
+                  step: i + 1,
+                  action: step.action,
+                  description: `FAILED: ${step.description || step.action} - ${stepError}`,
+                  timestamp: new Date().toISOString(),
+                  data: errorScreenshot.toString('base64')
+                });
+              } catch (screenshotError) {
+                logger.warn(`Failed to capture screenshot for step ${i + 1}`);
+              }
+
+              // Record step result
+              await this.recordStepResult(testCase.id, i, step, stepStatus, stepError, Date.now() - stepStartTime);
+
+              // Rethrow to fail the test
+              throw stepExecutionError;
+            }
+
+            // Record successful step result
+            await this.recordStepResult(testCase.id, i, step, stepStatus, null, Date.now() - stepStartTime);
           }
 
         } catch (error) {
@@ -708,9 +741,40 @@ class TestExecutor {
   }
 
 
+  async recordStepResult(testCaseId, stepIndex, step, status, errorMessage, executionTime) {
+    try {
+      await pool.query(`
+        INSERT INTO test_step_results (
+          test_case_id, step_index, step_action, step_selector, step_value,
+          step_description, status, error_message, execution_time
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (test_case_id, step_index)
+        DO UPDATE SET
+          status = EXCLUDED.status,
+          error_message = EXCLUDED.error_message,
+          execution_time = EXCLUDED.execution_time,
+          executed_at = CURRENT_TIMESTAMP
+      `, [
+        testCaseId,
+        stepIndex,
+        step.action,
+        step.selector || null,
+        step.value || null,
+        step.description || null,
+        status,
+        errorMessage,
+        executionTime
+      ]);
+
+      logger.info(`Step ${stepIndex + 1} for test case ${testCaseId}: ${status}`);
+    } catch (error) {
+      logger.error(`Failed to record step result: ${error.message}`);
+    }
+  }
+
   async updateExecutionStatus(status, errorMessage = null) {
     await pool.query(`
-      UPDATE test_executions 
+      UPDATE test_executions
       SET status = $1, end_time = CURRENT_TIMESTAMP
       WHERE id = $2
     `, [status, this.executionId]);
