@@ -22,16 +22,16 @@ import {
 } from 'lucide-react';
 
 // Component to display test step results with pass/fail status
-function TestStepResults({ testCaseId, testSteps }: { testCaseId: number; testSteps: any }) {
+function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCaseId: number; testSteps: any; autoExpand?: boolean }) {
   const [stepResults, setStepResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(autoExpand);
 
   useEffect(() => {
-    if (expanded && testCaseId) {
+    if (testCaseId) {
       loadStepResults();
     }
-  }, [expanded, testCaseId]);
+  }, [testCaseId]);
 
   const loadStepResults = async () => {
     try {
@@ -60,61 +60,81 @@ function TestStepResults({ testCaseId, testSteps }: { testCaseId: number; testSt
 
   return (
     <div className="mb-3">
-      <details className="group" open={expanded} onToggle={(e) => setExpanded(e.currentTarget.open)}>
-        <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
-          View Test Steps ({steps.length} steps)
-        </summary>
-        <div className="mt-2 space-y-1">
-          {loading ? (
-            <div className="text-sm text-gray-500">Loading step results...</div>
-          ) : (
-            steps.map((step: any, stepIndex: number) => {
-              const stepResult = stepResults.find((r) => r.step_index === stepIndex);
-              const status = stepResult?.status || 'pending';
+      <div className="mt-2 space-y-2">
+        {loading ? (
+          <div className="text-sm text-gray-500">Loading step results...</div>
+        ) : (
+          steps.map((step: any, stepIndex: number) => {
+            const stepResult = stepResults.find((r) => r.step_index === stepIndex);
+            const status = stepResult?.status || 'pending';
 
-              return (
-                <div
-                  key={stepIndex}
-                  className={`flex items-start p-2 rounded border ${
-                    status === 'passed'
-                      ? 'bg-green-50 border-green-200'
-                      : status === 'failed'
-                      ? 'bg-red-50 border-red-200'
-                      : 'bg-gray-50 border-gray-200'
-                  }`}
-                >
-                  <div className="flex-shrink-0 mr-2">
-                    {status === 'passed' && <CheckCircle className="h-4 w-4 text-green-600" />}
-                    {status === 'failed' && <XCircle className="h-4 w-4 text-red-600" />}
-                    {status === 'pending' && <Clock className="h-4 w-4 text-gray-400" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-xs text-gray-600">Step {stepIndex + 1}</span>
-                      <span className="text-sm text-gray-700">{step.description || step.action}</span>
-                    </div>
-                    {step.selector && (
-                      <code className="block mt-1 px-2 py-1 bg-white rounded text-xs text-gray-600 border">
-                        {step.selector}
-                      </code>
-                    )}
-                    {stepResult?.error_message && (
-                      <div className="mt-1 text-xs text-red-600 bg-red-100 p-1 rounded">
-                        {stepResult.error_message}
-                      </div>
-                    )}
-                    {stepResult?.execution_time !== undefined && (
-                      <div className="mt-1 text-xs text-gray-500">
-                        {stepResult.execution_time}ms
-                      </div>
-                    )}
-                  </div>
+            return (
+              <div
+                key={stepIndex}
+                className={`flex items-start p-3 rounded-lg border-l-4 ${
+                  status === 'passed'
+                    ? 'bg-green-50 border-green-400'
+                    : status === 'failed'
+                    ? 'bg-red-50 border-red-400'
+                    : 'bg-gray-50 border-gray-300'
+                }`}
+              >
+                <div className="flex-shrink-0 mr-3">
+                  <span className="font-semibold text-gray-600 text-sm">{stepIndex + 1}.</span>
                 </div>
-              );
-            })
-          )}
-        </div>
-      </details>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <span className="text-sm text-gray-800 font-medium">
+                      {step.description || step.action}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {stepResult?.self_healed && status === 'passed' && (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                          <Activity className="h-3 w-3 mr-1" />
+                          SELF-HEALED
+                        </span>
+                      )}
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                        status === 'passed'
+                          ? 'bg-green-100 text-green-800'
+                          : status === 'failed'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {status === 'passed' && <CheckCircle className="h-3 w-3 mr-1" />}
+                        {status === 'failed' && <XCircle className="h-3 w-3 mr-1" />}
+                        {status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                        {status.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                  {step.selector && (
+                    <code className="block mt-1 px-2 py-1 bg-white rounded text-xs text-gray-600 border border-gray-200">
+                      {step.selector}
+                    </code>
+                  )}
+                  {step.value && (
+                    <div className="mt-1 text-xs text-gray-600">
+                      <span className="font-medium">Value:</span> <code className="bg-white px-1 rounded">{step.value}</code>
+                    </div>
+                  )}
+                  {stepResult?.error_message && (
+                    <div className="mt-2 text-xs text-red-700 bg-red-100 p-2 rounded border border-red-200">
+                      <strong>Error:</strong> {stepResult.error_message}
+                    </div>
+                  )}
+                  {stepResult?.execution_time !== undefined && (
+                    <div className="mt-1 text-xs text-gray-500">
+                      <Clock className="h-3 w-3 inline mr-1" />
+                      {stepResult.execution_time}ms
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
@@ -921,20 +941,7 @@ export default function TestRunDetails() {
                               {testResult.test_steps && testResult.test_steps.length > 0 && (
                                 <div className="mt-3 p-3 bg-gray-50 rounded">
                                   <p className="text-sm font-medium text-gray-700 mb-2">Test Steps:</p>
-                                  <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
-                                    {testResult.test_steps.map((step: any, stepIdx: number) => (
-                                      <li key={stepIdx}>
-                                        {typeof step === 'string' ? step : (
-                                          <>
-                                            {step.description || `${step.action}${step.target ? ` on ${step.target}` : ''}`}
-                                            {step.selector && (
-                                              <span className="ml-2 text-xs font-mono text-gray-500">{step.selector}</span>
-                                            )}
-                                          </>
-                                        )}
-                                      </li>
-                                    ))}
-                                  </ol>
+                                  <TestStepResults testCaseId={testResult.test_case_id} testSteps={testResult.test_steps} />
                                 </div>
                               )}
 

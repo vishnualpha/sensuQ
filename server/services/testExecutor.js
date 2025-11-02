@@ -765,13 +765,15 @@ class TestExecutor {
           await this.executeTestStep(page, step);
 
           // Update step result to passed (overwrites any previous failed status)
+          // Mark as self-healed since we're in the self-healing flow
           await this.recordStepResult(
             testCase.id,
             i,
             step,
             'passed',
             null,
-            Date.now() - stepStartTime
+            Date.now() - stepStartTime,
+            true // self-healed
           );
 
           // Small delay between steps
@@ -786,7 +788,8 @@ class TestExecutor {
             step,
             'failed',
             error.message,
-            Date.now() - stepStartTime
+            Date.now() - stepStartTime,
+            false // not self-healed
           );
 
           return false; // Self-healing failed
@@ -802,18 +805,19 @@ class TestExecutor {
   }
 
 
-  async recordStepResult(testCaseId, stepIndex, step, status, errorMessage, executionTime) {
+  async recordStepResult(testCaseId, stepIndex, step, status, errorMessage, executionTime, selfHealed = false) {
     try {
       await pool.query(`
         INSERT INTO test_step_results (
           test_case_id, step_index, step_action, step_selector, step_value,
-          step_description, status, error_message, execution_time
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          step_description, status, error_message, execution_time, self_healed
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (test_case_id, step_index)
         DO UPDATE SET
           status = EXCLUDED.status,
           error_message = EXCLUDED.error_message,
           execution_time = EXCLUDED.execution_time,
+          self_healed = EXCLUDED.self_healed,
           executed_at = CURRENT_TIMESTAMP
       `, [
         testCaseId,
@@ -824,10 +828,11 @@ class TestExecutor {
         step.description || null,
         status,
         errorMessage,
-        executionTime
+        executionTime,
+        selfHealed
       ]);
 
-      logger.info(`Step ${stepIndex + 1} for test case ${testCaseId}: ${status}`);
+      logger.info(`Step ${stepIndex + 1} for test case ${testCaseId}: ${status}${selfHealed ? ' (self-healed)' : ''}`);
     } catch (error) {
       logger.error(`Failed to record step result: ${error.message}`);
     }
