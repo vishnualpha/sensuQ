@@ -424,7 +424,35 @@ class AutonomousCrawler {
    * Execute a single scenario step
    */
   async executeScenarioStep(step) {
-    const selector = step.selector;
+    let selector = step.selector;
+
+    // Handle invalid Playwright locator syntax that LLM might generate
+    if (selector.includes(':has-text(')) {
+      // Try to find element by text content as fallback
+      const textMatch = selector.match(/:has-text\("([^"]+)"\)/);
+      if (textMatch) {
+        const textContent = textMatch[1];
+        logger.warn(`Invalid selector syntax detected: ${selector}`);
+        logger.info(`Attempting to find element by text: "${textContent}"`);
+
+        // Try to find the element using text content
+        const locator = this.page.locator(`text="${textContent}"`);
+        const count = await locator.count();
+
+        if (count === 0) {
+          throw new Error(`Element with text "${textContent}" not found`);
+        }
+
+        // Use the first match
+        const isVisible = await locator.first().isVisible();
+        if (!isVisible) {
+          throw new Error(`Element with text "${textContent}" not visible`);
+        }
+
+        // Perform action using locator instead of selector
+        return await this.executeStepWithLocator(step, locator.first());
+      }
+    }
 
     await this.page.waitForSelector(selector, { timeout: 5000 });
 
@@ -465,6 +493,48 @@ class AutonomousCrawler {
 
       case 'hover':
         await this.page.hover(selector);
+        break;
+
+      default:
+        logger.warn(`Unknown action type: ${step.action}`);
+    }
+  }
+
+  /**
+   * Execute step using Playwright locator (for fallback scenarios)
+   */
+  async executeStepWithLocator(step, locator) {
+    switch (step.action) {
+      case 'click':
+        await Promise.all([
+          this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}),
+          locator.click()
+        ]);
+        break;
+
+      case 'fill':
+        let fillValue = step.value || 'test data';
+
+        if (fillValue === '{auth_username}' && this.testConfig.auth_username) {
+          fillValue = this.testConfig.auth_username;
+        } else if (fillValue === '{auth_password}' && this.testConfig.auth_password) {
+          fillValue = this.testConfig.auth_password;
+        }
+
+        await locator.fill(fillValue);
+        break;
+
+      case 'select':
+        const valueToSelect = step.value || '';
+        await locator.selectOption(valueToSelect);
+        break;
+
+      case 'check':
+        await locator.check();
+        break;
+
+      case 'hover':
+        await locator.hover();
         break;
 
       default:

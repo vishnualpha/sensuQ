@@ -57,14 +57,17 @@ Return a JSON object with this exact structure:
 - **low**: Cosmetic interactions, tooltips, non-essential features
 
 # Important Rules
-1. Only use selectors that exist in the provided interactive elements list
-2. Each scenario should have 1-5 steps (grouped logically)
-3. Generate 3-8 scenarios per page (focus on quality over quantity)
-4. If you see login fields, create a login scenario
-5. If you see a search box, create a search scenario
-6. If you see forms, create form submission scenarios
-7. Set `leadsToNewPage: true` for navigation actions (links, submit buttons, navigation items)
-8. Set `leadsToNewPage: false` for in-page interactions (modals, dropdowns, accordions)
+1. CRITICAL: Only use the EXACT CSS selectors from the provided interactive elements list above
+2. DO NOT generate or invent new selectors - ONLY use selectors that are explicitly listed
+3. DO NOT use Playwright locator syntax like 'link:has-text("...")' or 'button:has-text("...")'
+4. ONLY use standard CSS selectors (e.g., '#id', '.class', 'button[aria-label="..."]')
+5. Each scenario should have 1-5 steps (grouped logically)
+6. Generate 3-8 scenarios per page (focus on quality over quantity)
+7. If you see login fields, create a login scenario
+8. If you see a search box, create a search scenario
+9. If you see forms, create form submission scenarios
+10. Set `leadsToNewPage: true` for navigation actions (links, submit buttons, navigation items)
+11. Set `leadsToNewPage: false` for in-page interactions (modals, dropdowns, accordions)
 
 # Examples
 
