@@ -186,7 +186,14 @@ RESPOND ONLY WITH VALID JSON in this format:
 
     try {
       const response = await this.testGenerator.callLLM(prompt);
-      const llmResponse = JSON.parse(response);
+
+      let cleanedResponse = response.trim();
+      // Remove markdown code blocks if present
+      if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      }
+
+      const llmResponse = JSON.parse(cleanedResponse);
 
       return llmResponse.tests.map(test => ({
         test_type: test.testType,

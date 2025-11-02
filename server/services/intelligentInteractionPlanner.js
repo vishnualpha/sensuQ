@@ -71,12 +71,18 @@ class IntelligentInteractionPlanner {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`
-          }
+          },
+          timeout: 60000
         }
       );
 
-      const responseText = response.data.choices[0].message.content;
+      let responseText = response.data.choices[0].message.content.trim();
       logger.info('LLM response received for scenario generation');
+
+      // Remove markdown code blocks if present
+      if (responseText.startsWith('```')) {
+        responseText = responseText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      }
 
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {

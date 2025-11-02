@@ -133,10 +133,18 @@ class AITestGenerator {
 
   parseTestCases(response) {
     try {
-      const parsed = JSON.parse(response);
+      let cleanedResponse = response.trim();
+
+      // Remove markdown code blocks if present
+      if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      }
+
+      const parsed = JSON.parse(cleanedResponse);
       return parsed.testCases || [];
     } catch (error) {
-      logger.error('Error parsing LLM response, using fallback');
+      logger.error(`Error parsing LLM response: ${error.message}`);
+      logger.error(`Response preview: ${response.substring(0, 200)}...`);
       return [];
     }
   }
