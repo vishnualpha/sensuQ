@@ -36,10 +36,19 @@ function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCa
   const loadStepResults = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:3001/api/tests/cases/${testCaseId}/steps`);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/tests/cases/${testCaseId}/steps`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
       if (response.ok) {
         const data = await response.json();
+        console.log('Step results loaded:', data);
         setStepResults(data);
+      } else {
+        console.error('Failed to load step results. Status:', response.status);
       }
     } catch (error) {
       console.error('Failed to load step results:', error);
@@ -64,9 +73,13 @@ function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCa
   return (
     <div className="mb-3">
       {!hasStepResults && !loading && (
-        <div className="text-xs text-gray-500 italic mb-2 p-2 bg-gray-50 rounded border border-gray-200">
-          Note: Detailed step-by-step results are not available for this test execution.
-          Step tracking will be available for new test runs.
+        <div className="text-xs text-gray-500 italic mb-2 p-2 bg-amber-50 rounded border border-amber-200">
+          ⚠️ <strong>Step-level tracking not available.</strong> This may be because:
+          <ul className="ml-4 mt-1 list-disc">
+            <li>Database migrations haven't been run yet (run <code className="bg-white px-1 rounded">node scripts/run-migrations.js</code>)</li>
+            <li>Or this test was executed before step tracking was added</li>
+          </ul>
+          <span className="block mt-1">After running migrations, new test executions will show detailed pass/fail status for each step.</span>
         </div>
       )}
       <div className="mt-2 space-y-2">
