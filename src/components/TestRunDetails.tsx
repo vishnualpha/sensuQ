@@ -184,12 +184,23 @@ export default function TestRunDetails() {
           console.log('✅ Progress update matches current test run:', data);
           setCrawlerProgress(data);
 
-          // Update testRun's total_pages_discovered in real-time
-          if (data.discoveredPagesCount !== undefined && testRun) {
-            setTestRun({
-              ...testRun,
-              total_pages_discovered: data.discoveredPagesCount
-            });
+          // Update testRun stats in real-time
+          if (testRun) {
+            const updatedTestRun = { ...testRun };
+
+            if (data.discoveredPagesCount !== undefined) {
+              updatedTestRun.total_pages_discovered = data.discoveredPagesCount;
+            }
+
+            if (data.totalTestCases !== undefined) {
+              updatedTestRun.total_test_cases = data.totalTestCases;
+            }
+
+            if (data.coveragePercentage !== undefined) {
+              updatedTestRun.coverage_percentage = data.coveragePercentage;
+            }
+
+            setTestRun(updatedTestRun);
           }
 
           // Refresh test run details when crawling/generation completes

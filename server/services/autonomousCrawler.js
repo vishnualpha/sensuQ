@@ -70,12 +70,21 @@ class AutonomousCrawler {
 
       await this.updateTestRunStats();
 
-      // Emit completion
+      // Get updated stats after saving
+      const statsResult = await pool.query(
+        'SELECT total_test_cases, coverage_percentage FROM test_runs WHERE id = $1',
+        [this.testRunId]
+      );
+      const stats = statsResult.rows[0];
+
+      // Emit completion with stats
       if (this.io) {
         this.io.emit('crawlerProgress', {
           testRunId: this.testRunId,
           phase: 'completed',
           discoveredPagesCount: this.pagesDiscovered,
+          totalTestCases: stats.total_test_cases,
+          coveragePercentage: stats.coverage_percentage,
           message: 'Crawling and test generation completed!',
           percentage: 100,
           canStopCrawling: false
@@ -870,12 +879,26 @@ class AutonomousCrawler {
    * Update test run statistics
    */
   async updateTestRunStats() {
+    const testCasesCount = await pool.query(
+      'SELECT COUNT(*) as count FROM test_cases WHERE test_run_id = $1',
+      [this.testRunId]
+    );
+
+    const totalTestCases = parseInt(testCasesCount.rows[0].count) || 0;
+    const coveragePercentage = Math.min((this.pagesDiscovered / this.testConfig.max_pages) * 100, 100);
+
     await pool.query(
       `UPDATE test_runs
-       SET total_pages_discovered = $1, status = 'completed', end_time = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [this.pagesDiscovered, this.testRunId]
+       SET total_pages_discovered = $1,
+           total_test_cases = $2,
+           coverage_percentage = $3,
+           status = 'ready_for_execution',
+           end_time = CURRENT_TIMESTAMP
+       WHERE id = $4`,
+      [this.pagesDiscovered, totalTestCases, coveragePercentage, this.testRunId]
     );
+
+    logger.info(`Updated test run stats: ${this.pagesDiscovered} pages, ${totalTestCases} test cases, ${coveragePercentage.toFixed(2)}% coverage`);
   }
 
   /**
