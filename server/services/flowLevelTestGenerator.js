@@ -1,6 +1,8 @@
 const logger = require('../utils/logger');
 const { AITestGenerator } = require('./aiTestGenerator');
 const { pool } = require('../config/database');
+const FlowPatternRecognizer = require('./flowPatternRecognizer');
+const JourneyMapper = require('./journeyMapper');
 
 /**
  * Generate flow-level tests by analyzing crawl paths and user journeys
@@ -9,6 +11,8 @@ class FlowLevelTestGenerator {
   constructor(llmConfig) {
     this.config = llmConfig;
     this.testGenerator = null;
+    this.patternRecognizer = new FlowPatternRecognizer();
+    this.journeyMapper = new JourneyMapper();
 
     if (llmConfig && llmConfig.api_key) {
       this.testGenerator = new AITestGenerator(llmConfig);
@@ -30,24 +34,34 @@ class FlowLevelTestGenerator {
         return [];
       }
 
-      // Get all pages and their elements
       const pages = await this.getDiscoveredPages(testRunId);
 
-      // Build flow sequences from paths
       const flowSequences = this.buildFlowSequences(crawlPaths, pages);
 
       logger.info(`Built ${flowSequences.length} potential flow sequences`);
 
-      // Use LLM to identify meaningful flows
-      const meaningfulFlows = await this.identifyMeaningfulFlows(flowSequences, pages);
+      logger.info(`🗺️  Building journey graph...`);
+      const journeyGraph = this.journeyMapper.buildJourneyGraph(crawlPaths);
+      logger.info(`   Graph: ${journeyGraph.nodes.length} nodes, ${journeyGraph.edges.length} edges`);
+      logger.info(`   Entry points: ${journeyGraph.entryPoints.length}, Goals: ${journeyGraph.goalPages.length}`);
 
-      // Save flows to database
+      logger.info(`🔍 Analyzing flow patterns...`);
+      const analyzedFlows = flowSequences.map(flow => {
+        const patternAnalysis = this.patternRecognizer.analyzeFlow(flow);
+        const metadata = this.patternRecognizer.extractFlowMetadata(flow, patternAnalysis);
+        return { ...flow, ...metadata };
+      });
+
+      const sortedFlows = this.patternRecognizer.sortFlowsByPriority(analyzedFlows);
+      logger.info(`   Detected patterns: ${sortedFlows.filter(f => f.patternType !== 'unknown').length}/${sortedFlows.length}`);
+
+      const meaningfulFlows = await this.identifyMeaningfulFlows(sortedFlows, pages);
+
       const savedFlows = [];
       for (const flow of meaningfulFlows) {
         const flowId = await this.saveUserFlow(testRunId, flow);
         savedFlows.push({ ...flow, id: flowId });
 
-        // Generate test case for this flow
         await this.generateFlowTestCase(testRunId, flowId, flow);
       }
 
@@ -284,8 +298,12 @@ RESPOND ONLY WITH VALID JSON:
    */
   async saveUserFlow(testRunId, flow) {
     const result = await pool.query(
-      `INSERT INTO user_flows (test_run_id, flow_name, flow_description, flow_type, page_sequence, interaction_sequence, business_value, estimated_coverage_impact)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO user_flows
+       (test_run_id, flow_name, flow_description, flow_type, page_sequence, interaction_sequence,
+        business_value, estimated_coverage_impact, flow_pattern_type, pattern_confidence,
+        flow_quality_score, journey_type, pages_in_flow, success_criteria,
+        estimated_duration_seconds, priority, entry_page_url, goal_page_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING id`,
       [
         testRunId,
@@ -295,7 +313,17 @@ RESPOND ONLY WITH VALID JSON:
         JSON.stringify(flow.page_sequence),
         JSON.stringify(flow.interaction_sequence),
         flow.business_value,
-        flow.estimated_coverage_impact
+        flow.estimated_coverage_impact,
+        flow.patternType || null,
+        flow.confidence || 0,
+        flow.qualityScore || 0,
+        flow.journeyType || 'unknown',
+        JSON.stringify(flow.pagesInFlow || []),
+        JSON.stringify(flow.successCriteria || []),
+        flow.estimatedDuration || 0,
+        flow.priority || 'medium',
+        flow.startPage || null,
+        flow.endPage || null
       ]
     );
 
