@@ -175,8 +175,17 @@ export default function TestRunDetails() {
     if (id) {
       fetchTestRunDetails(parseInt(id));
       fetchExecutionHistory(parseInt(id));
+
+      // Poll for updates every 3 seconds if crawl is running or paused
+      const pollInterval = setInterval(() => {
+        if (testRun && (testRun.status === 'running' || testRun.status === 'paused')) {
+          fetchTestRunDetails(parseInt(id));
+        }
+      }, 3000);
+
+      return () => clearInterval(pollInterval);
     }
-  }, [id]);
+  }, [id, testRun?.status]);
 
   useEffect(() => {
     if (socket && id) {
@@ -187,8 +196,10 @@ export default function TestRunDetails() {
           setCrawlerProgress(data);
 
           // Update testRun stats in real-time
-          if (testRun) {
-            const updatedTestRun = { ...testRun };
+          setTestRun((prevTestRun) => {
+            if (!prevTestRun) return prevTestRun;
+
+            const updatedTestRun = { ...prevTestRun };
 
             if (data.discoveredPagesCount !== undefined) {
               updatedTestRun.total_pages_discovered = data.discoveredPagesCount;
@@ -202,11 +213,11 @@ export default function TestRunDetails() {
               updatedTestRun.coverage_percentage = data.coveragePercentage;
             }
 
-            setTestRun(updatedTestRun);
-          }
+            return updatedTestRun;
+          });
 
           // Refresh test run details when crawling/generation completes
-          if (data.phase === 'ready' || data.percentage === 100) {
+          if (data.phase === 'ready' || data.phase === 'completed' || data.percentage === 100) {
             console.log('🎉 Crawling completed, refreshing test run details');
             setTimeout(() => fetchTestRunDetails(parseInt(id!)), 1000);
           }
@@ -237,6 +248,25 @@ export default function TestRunDetails() {
     try {
       const response = await testAPI.getRunDetails(runId);
       setTestRun(response.data);
+
+      // Initialize crawler progress if crawl is running or paused
+      if (response.data.status === 'running' || response.data.status === 'paused') {
+        const percentage = response.data.total_pages_discovered > 0
+          ? Math.min((response.data.total_pages_discovered / 50) * 100, 100)
+          : 0;
+
+        setCrawlerProgress({
+          testRunId: runId,
+          phase: response.data.status === 'paused' ? 'paused' : 'crawling',
+          discoveredPagesCount: response.data.total_pages_discovered || 0,
+          totalTestCases: response.data.total_test_cases || 0,
+          message: response.data.status === 'paused'
+            ? 'Crawling is paused'
+            : `Discovered ${response.data.total_pages_discovered || 0} pages`,
+          percentage: percentage,
+          canStopCrawling: true
+        });
+      }
     } catch (error) {
       console.error('Error fetching test run details:', error);
     } finally {

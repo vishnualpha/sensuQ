@@ -251,6 +251,9 @@ class AutonomousCrawler {
       // Generate page-level tests
       await this.generatePageTests(pageId, url, analysis, analysis.interactiveElements);
 
+      // Update database stats periodically (every page)
+      await this.updateRunningStats();
+
       // Execute scenarios instead of blind element clicking
       for (const scenario of scenarios) {
         if (depth >= this.testConfig.max_depth || this.pagesDiscovered >= this.testConfig.max_pages) {
@@ -900,7 +903,29 @@ class AutonomousCrawler {
   }
 
   /**
-   * Update test run statistics
+   * Update stats during crawling (without changing status)
+   */
+  async updateRunningStats() {
+    const testCasesCount = await pool.query(
+      'SELECT COUNT(*) as count FROM test_cases WHERE test_run_id = $1',
+      [this.testRunId]
+    );
+
+    const totalTestCases = parseInt(testCasesCount.rows[0].count) || 0;
+    const coveragePercentage = Math.min((this.pagesDiscovered / this.testConfig.max_pages) * 100, 100);
+
+    await pool.query(
+      `UPDATE test_runs
+       SET total_pages_discovered = $1,
+           total_test_cases = $2,
+           coverage_percentage = $3
+       WHERE id = $4`,
+      [this.pagesDiscovered, totalTestCases, coveragePercentage, this.testRunId]
+    );
+  }
+
+  /**
+   * Update test run statistics and mark as ready
    */
   async updateTestRunStats() {
     const testCasesCount = await pool.query(
