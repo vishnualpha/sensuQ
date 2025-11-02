@@ -321,32 +321,20 @@ class TestExecutor {
           await page.goto(step.value, { waitUntil: 'domcontentloaded', timeout });
           break;
         case 'click':
-          await this.executeWithRetry(page, step.selector, async (sel) => {
-            await page.click(sel, { timeout });
-          });
+          await this.smartClickWithRetry(page, step.selector, timeout);
           break;
         case 'fill':
-          await this.executeWithRetry(page, step.selector, async (sel) => {
-            await page.fill(sel, step.value, { timeout });
-          });
+          await this.smartFillWithRetry(page, step.selector, step.value, timeout);
           break;
         case 'select':
-          await this.executeWithRetry(page, step.selector, async (sel) => {
-            await page.selectOption(sel, step.value, { timeout });
-          });
+          await this.smartSelectWithRetry(page, step.selector, step.value, timeout);
           break;
         case 'wait':
           await page.waitForSelector(step.selector, { timeout, state: 'visible' });
           break;
         case 'check':
-          await this.executeWithRetry(page, step.selector, async (sel) => {
-            await page.check(sel, { timeout });
-          });
-          break;
         case 'uncheck':
-          await this.executeWithRetry(page, step.selector, async (sel) => {
-            await page.uncheck(sel, { timeout });
-          });
+          await this.smartClickWithRetry(page, step.selector, timeout);
           break;
         case 'assert':
         case 'verify':
@@ -362,6 +350,135 @@ class TestExecutor {
       // Add more context to the error
       throw new Error(`Failed to ${step.action} using selector "${step.selector}": ${error.message}`);
     }
+  }
+
+  async smartClickWithRetry(page, selector, timeout) {
+    const alternativeSelectors = await this.generateAlternativeSelectors(page, selector);
+
+    for (const sel of alternativeSelectors) {
+      try {
+        // Try standard click
+        await page.click(sel, { timeout: timeout / 2 });
+        logger.info(`Clicked: ${sel}`);
+        return;
+      } catch (e) {
+        // Try force click
+        try {
+          await page.click(sel, { force: true, timeout: timeout / 2 });
+          logger.info(`Force-clicked: ${sel}`);
+          return;
+        } catch (e2) {
+          // Try JS click
+          try {
+            await page.$eval(sel, el => el.click());
+            logger.info(`JS-clicked: ${sel}`);
+            await page.waitForTimeout(300);
+            return;
+          } catch (e3) {
+            continue;
+          }
+        }
+      }
+    }
+    throw new Error(`All click attempts failed for: ${selector}`);
+  }
+
+  async smartFillWithRetry(page, selector, value, timeout) {
+    const alternativeSelectors = await this.generateAlternativeSelectors(page, selector);
+
+    for (const sel of alternativeSelectors) {
+      try {
+        // Check if clicking opens a search dialog
+        const initialDialogCount = await page.locator('[role="dialog"], [class*="modal"], [class*="dropdown"]').count();
+
+        await page.click(sel, { timeout: 3000 }).catch(() => {});
+        await page.waitForTimeout(500);
+
+        const newDialogCount = await page.locator('[role="dialog"], [class*="modal"], [class*="dropdown"]').count();
+
+        if (newDialogCount > initialDialogCount) {
+          // A dialog opened - try to fill the input inside it
+          const dialogInput = page.locator('[role="dialog"] input, [class*="modal"] input, [class*="dropdown"] input').first();
+          const hasDialogInput = await dialogInput.count();
+
+          if (hasDialogInput > 0) {
+            await dialogInput.fill(value, { timeout: 3000 });
+            logger.info(`Filled search dialog: ${value}`);
+            await page.waitForTimeout(1000);
+
+            // Try to select first option
+            const firstOption = page.locator('[role="option"], [class*="option"], li').first();
+            const hasOption = await firstOption.count();
+            if (hasOption > 0) {
+              await firstOption.click({ timeout: 2000 }).catch(() => {});
+              logger.info(`Selected first option from dialog`);
+            }
+            return;
+          }
+        }
+
+        // Try standard fill
+        await page.fill(sel, value, { timeout: timeout / 2 });
+        logger.info(`Filled: ${sel} = ${value}`);
+        return;
+      } catch (e) {
+        // Try type as fallback
+        try {
+          await page.click(sel, { timeout: 2000 });
+          await page.type(sel, value, { delay: 50 });
+          logger.info(`Typed: ${sel} = ${value}`);
+          return;
+        } catch (e2) {
+          continue;
+        }
+      }
+    }
+    throw new Error(`All fill attempts failed for: ${selector}`);
+  }
+
+  async smartSelectWithRetry(page, selector, value, timeout) {
+    const alternativeSelectors = await this.generateAlternativeSelectors(page, selector);
+
+    for (const sel of alternativeSelectors) {
+      try {
+        // Try clicking first - might be custom select
+        await page.click(sel, { timeout: 2000 });
+        await page.waitForTimeout(500);
+
+        // Check if dropdown appeared
+        const options = page.locator('[role="option"], [class*="option"], li[class*="item"]');
+        const optionCount = await options.count();
+
+        if (optionCount > 0) {
+          // Custom select - try to find matching option
+          if (value) {
+            const matchingOption = options.filter({ hasText: value }).first();
+            const hasMatch = await matchingOption.count();
+            if (hasMatch > 0) {
+              await matchingOption.click({ timeout: 2000 });
+              logger.info(`Selected custom option: ${value}`);
+              return;
+            }
+          }
+          // Click first option
+          await options.first().click({ timeout: 2000 });
+          logger.info(`Selected first custom option`);
+          return;
+        }
+
+        // Try standard select
+        if (value) {
+          await page.selectOption(sel, value, { timeout: timeout / 2 });
+        } else {
+          await page.selectOption(sel, { index: 1 }, { timeout: timeout / 2 });
+        }
+        logger.info(`Selected: ${sel} = ${value}`);
+        return;
+      } catch (e) {
+        continue;
+      }
+    }
+    throw new Error(`All select attempts failed for: ${selector}`);
   }
 
   async executeWithRetry(page, selector, action) {

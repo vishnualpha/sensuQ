@@ -296,43 +296,13 @@ class IntelligentInteractionHandler {
 
       switch (type) {
         case 'click':
-          await element.click({ timeout: 5000 });
-          logger.info(`✅ Successfully clicked: ${selector}`);
-          return true;
+          return await this.smartClick(page, element, selector);
 
         case 'fill':
-          const fieldInfo = {
-            selector,
-            name: await element.getAttribute('name').catch(() => ''),
-            label: description || '',
-            placeholder: await element.getAttribute('placeholder').catch(() => '')
-          };
-          const fillResult = await this.formFiller.analyzeAndFillField(page, selector, fieldInfo);
-          if (fillResult.success) {
-            logger.info(`✅ Smart-filled ${selector} with: ${fillResult.value}`);
-            return true;
-          } else {
-            const fallbackValue = value || this.generateContextualValue(interaction, selector);
-            await element.fill(fallbackValue, { timeout: 5000 });
-            logger.info(`✅ Fallback filled ${selector} with: ${fallbackValue}`);
-            return true;
-          }
+          return await this.smartFill(page, element, selector, value, interaction);
 
         case 'select':
-          try {
-            const selectResult = await this.formFiller.fillSelectField(page, selector, element);
-            logger.info(`✅ Smart-selected option in: ${selector}`);
-            return true;
-          } catch (selectError) {
-            if (value) {
-              await element.selectOption(value, { timeout: 5000 });
-              logger.info(`✅ Fallback selected ${value} in: ${selector}`);
-              return true;
-            } else {
-              logger.warn(`No value provided for select interaction`);
-              return false;
-            }
-          }
+          return await this.smartSelect(page, element, selector, value);
 
         case 'submit':
           await element.click({ timeout: 5000 });
@@ -347,9 +317,196 @@ class IntelligentInteractionHandler {
     } catch (error) {
       logger.error(`❌ Failed to execute ${type} on ${selector}`);
       logger.error(`Error: ${error.message}`);
-      logger.error(`Stack: ${error.stack}`);
       return false;
     }
+  }
+
+  async smartClick(page, element, selector) {
+    try {
+      // Try standard click first
+      await element.click({ timeout: 3000 });
+      logger.info(`✅ Successfully clicked: ${selector}`);
+      return true;
+    } catch (error) {
+      logger.warn(`Standard click failed, trying alternatives...`);
+
+      // Try force click (ignoring visibility/actionability checks)
+      try {
+        await element.click({ force: true, timeout: 3000 });
+        logger.info(`✅ Force-clicked: ${selector}`);
+        return true;
+      } catch (e) {
+        logger.debug(`Force click failed: ${e.message}`);
+      }
+
+      // Try JavaScript click
+      try {
+        await element.evaluate(el => el.click());
+        logger.info(`✅ JS-clicked: ${selector}`);
+        await page.waitForTimeout(500);
+        return true;
+      } catch (e) {
+        logger.debug(`JS click failed: ${e.message}`);
+      }
+
+      // Try dispatching click event
+      try {
+        await element.dispatchEvent('click');
+        logger.info(`✅ Dispatched click event: ${selector}`);
+        await page.waitForTimeout(500);
+        return true;
+      } catch (e) {
+        logger.debug(`Dispatch click failed: ${e.message}`);
+      }
+
+      logger.error(`All click attempts failed for: ${selector}`);
+      return false;
+    }
+  }
+
+  async smartFill(page, element, selector, value, interaction) {
+    const initialUrl = page.url();
+    const initialModalCount = await page.locator('[role="dialog"], [class*="modal"]').count();
+
+    // Try clicking the field first - some fields open search dialogs/dropdowns
+    try {
+      await element.click({ timeout: 2000 });
+      await page.waitForTimeout(500);
+      logger.info(`Clicked field before filling: ${selector}`);
+
+      // Check if a modal/dialog/dropdown appeared
+      const newModalCount = await page.locator('[role="dialog"], [class*="modal"], [class*="dropdown"], [class*="autocomplete"]').count();
+      if (newModalCount > initialModalCount) {
+        logger.info(`Field opened a search dialog/dropdown`);
+
+        // Try to find search input in the dialog
+        const dialogInput = page.locator('[role="dialog"] input, [class*="modal"] input, [class*="dropdown"] input, [class*="autocomplete"] input').first();
+        const dialogInputExists = await dialogInput.count();
+
+        if (dialogInputExists > 0) {
+          const fillValue = value || this.generateContextualValue(interaction, selector);
+          await dialogInput.fill(fillValue, { timeout: 3000 });
+          logger.info(`✅ Filled search dialog with: ${fillValue}`);
+          await page.waitForTimeout(1000);
+
+          // Try to select first option if available
+          const firstOption = page.locator('[role="option"], [class*="option"], li[class*="item"]').first();
+          const optionExists = await firstOption.count();
+          if (optionExists > 0) {
+            await firstOption.click({ timeout: 2000 }).catch(() => {});
+            logger.info(`✅ Selected first option from dialog`);
+          }
+          return true;
+        }
+      }
+    } catch (e) {
+      logger.debug(`Pre-click failed: ${e.message}`);
+    }
+
+    // Try smart form filling
+    try {
+      const fieldInfo = {
+        selector,
+        name: await element.getAttribute('name').catch(() => ''),
+        label: interaction.description || '',
+        placeholder: await element.getAttribute('placeholder').catch(() => '')
+      };
+      const fillResult = await this.formFiller.analyzeAndFillField(page, selector, fieldInfo);
+      if (fillResult.success) {
+        logger.info(`✅ Smart-filled ${selector} with: ${fillResult.value}`);
+        return true;
+      }
+    } catch (e) {
+      logger.debug(`Smart fill failed: ${e.message}`);
+    }
+
+    // Try standard fill
+    try {
+      const fallbackValue = value || this.generateContextualValue(interaction, selector);
+      await element.fill(fallbackValue, { timeout: 3000 });
+      logger.info(`✅ Filled ${selector} with: ${fallbackValue}`);
+      return true;
+    } catch (e) {
+      logger.debug(`Standard fill failed: ${e.message}`);
+    }
+
+    // Try type (character by character)
+    try {
+      const fallbackValue = value || this.generateContextualValue(interaction, selector);
+      await element.click({ timeout: 2000 });
+      await element.type(fallbackValue, { delay: 50 });
+      logger.info(`✅ Typed into ${selector}: ${fallbackValue}`);
+      return true;
+    } catch (e) {
+      logger.debug(`Type failed: ${e.message}`);
+    }
+
+    logger.error(`All fill attempts failed for: ${selector}`);
+    return false;
+  }
+
+  async smartSelect(page, element, selector, value) {
+    // Try clicking first - might be a custom select that opens a dropdown
+    try {
+      await element.click({ timeout: 2000 });
+      await page.waitForTimeout(500);
+      logger.info(`Clicked select element: ${selector}`);
+
+      // Check if dropdown/options appeared
+      const dropdownOptions = page.locator('[role="option"], [class*="option"], li[class*="item"]');
+      const optionCount = await dropdownOptions.count();
+
+      if (optionCount > 0) {
+        logger.info(`Custom select opened with ${optionCount} options`);
+        // Try to find and click an option
+        if (value) {
+          const matchingOption = dropdownOptions.filter({ hasText: value }).first();
+          const matchExists = await matchingOption.count();
+          if (matchExists > 0) {
+            await matchingOption.click({ timeout: 2000 });
+            logger.info(`✅ Selected custom option: ${value}`);
+            return true;
+          }
+        }
+        // Select first option as fallback
+        await dropdownOptions.first().click({ timeout: 2000 });
+        logger.info(`✅ Selected first custom option`);
+        return true;
+      }
+    } catch (e) {
+      logger.debug(`Custom select handling failed: ${e.message}`);
+    }
+
+    // Try standard select
+    try {
+      const fillResult = await this.formFiller.fillSelectField(page, selector, element);
+      logger.info(`✅ Smart-selected option in: ${selector}`);
+      return true;
+    } catch (e) {
+      logger.debug(`Smart select failed: ${e.message}`);
+    }
+
+    // Try fallback with provided value
+    try {
+      if (value) {
+        await element.selectOption(value, { timeout: 3000 });
+        logger.info(`✅ Selected ${value} in: ${selector}`);
+        return true;
+      } else {
+        // Select first option
+        const options = await element.locator('option').all();
+        if (options.length > 1) {
+          await element.selectOption({ index: 1 });
+          logger.info(`✅ Selected first option in: ${selector}`);
+          return true;
+        }
+      }
+    } catch (e) {
+      logger.debug(`Standard select failed: ${e.message}`);
+    }
+
+    logger.error(`All select attempts failed for: ${selector}`);
+    return false;
   }
 
   generateContextualValue(interaction, selector) {
