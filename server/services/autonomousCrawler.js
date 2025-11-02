@@ -32,16 +32,20 @@ class AutonomousCrawler {
   }
 
   /**
-   * Start crawling from base URL
+   * Start crawling from base URL using breadth-first approach
    */
   async start() {
     try {
       logger.info(`Starting autonomous crawl for test run ${this.testRunId}`);
       logger.info(`Target URL: ${this.testConfig.target_url}`);
       logger.info(`Max Depth: ${this.testConfig.max_depth}, Max Pages: ${this.testConfig.max_pages}`);
+      logger.info(`🔄 Using BREADTH-FIRST crawling strategy`);
 
       await this.initializeBrowser();
-      await this.crawlPage(this.testConfig.target_url, null, null, 0);
+
+      await this.enqueueUrl(this.testConfig.target_url, 0, null, null, 'high');
+
+      await this.processBreadthFirstQueue();
 
       logger.info(`Crawl completed. Discovered ${this.pagesDiscovered} pages`);
 
@@ -358,20 +362,18 @@ class AutonomousCrawler {
       }
 
       const endUrl = this.page.url();
-      let discoveredPageId = null;
+
+      const scenarioResult = await pool.query(
+        'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
+        [currentPageId, scenario.name]
+      );
+      const scenarioId = scenarioResult.rows.length > 0 ? scenarioResult.rows[0].id : null;
 
       if (endUrl !== startUrl && !this.visitedUrls.has(endUrl)) {
         logger.info(`  ✅ Scenario led to new page: ${endUrl}`);
 
-        if (this.pagesDiscovered < this.testConfig.max_pages && currentDepth < this.testConfig.max_depth) {
-          await this.crawlPage(endUrl, currentPageId, null, currentDepth + 1);
-          const pageResult = await pool.query(
-            'SELECT id FROM discovered_pages WHERE url = $1 AND test_run_id = $2',
-            [endUrl, this.testRunId]
-          );
-          if (pageResult.rows.length > 0) {
-            discoveredPageId = pageResult.rows[0].id;
-          }
+        if (currentDepth + 1 <= this.testConfig.max_depth) {
+          await this.enqueueUrl(endUrl, currentDepth + 1, currentPageId, scenarioId, scenario.priority);
         }
 
         try {
@@ -384,16 +386,11 @@ class AutonomousCrawler {
         logger.info(`  ℹ️ Scenario completed on same page (in-page interaction)`);
       }
 
-      const scenarioResult = await pool.query(
-        'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
-        [currentPageId, scenario.name]
-      );
-
-      if (scenarioResult.rows.length > 0) {
+      if (scenarioId) {
         await this.interactionPlanner.markScenarioExecuted(
-          scenarioResult.rows[0].id,
+          scenarioId,
           scenarioSuccess,
-          discoveredPageId,
+          null,
           lastStepError
         );
       }
@@ -487,6 +484,132 @@ class AutonomousCrawler {
 
     } catch (error) {
       logger.error(`Failed to restart browser: ${error.message}`);
+    }
+  }
+
+  /**
+   * Enqueue a URL for breadth-first crawling
+   */
+  async enqueueUrl(url, depth, fromPageId, scenarioId, priority = 'medium') {
+    try {
+      if (this.visitedUrls.has(url)) {
+        return;
+      }
+
+      const existing = await pool.query(
+        'SELECT id FROM page_discovery_queue WHERE test_run_id = $1 AND url = $2',
+        [this.testRunId, url]
+      );
+
+      if (existing.rows.length > 0) {
+        return;
+      }
+
+      await pool.query(
+        `INSERT INTO page_discovery_queue
+         (test_run_id, url, depth_level, from_page_id, scenario_id, priority, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'queued')`,
+        [this.testRunId, url, depth, fromPageId, scenarioId, priority]
+      );
+
+      logger.info(`📥 Enqueued: ${url} (depth: ${depth}, priority: ${priority})`);
+    } catch (error) {
+      logger.error(`Failed to enqueue URL ${url}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Process the queue using breadth-first strategy
+   */
+  async processBreadthFirstQueue() {
+    let currentDepth = 0;
+    let processedCount = 0;
+
+    while (currentDepth <= this.testConfig.max_depth && this.pagesDiscovered < this.testConfig.max_pages) {
+      logger.info(`\n📊 Processing depth level: ${currentDepth}`);
+
+      const queueItems = await pool.query(
+        `SELECT * FROM page_discovery_queue
+         WHERE test_run_id = $1
+         AND status = 'queued'
+         AND depth_level = $2
+         ORDER BY
+           CASE priority
+             WHEN 'high' THEN 1
+             WHEN 'medium' THEN 2
+             WHEN 'low' THEN 3
+           END,
+           id ASC`,
+        [this.testRunId, currentDepth]
+      );
+
+      if (queueItems.rows.length === 0) {
+        logger.info(`No more pages at depth ${currentDepth}, moving to next level`);
+        currentDepth++;
+        continue;
+      }
+
+      logger.info(`Found ${queueItems.rows.length} pages to process at depth ${currentDepth}`);
+
+      for (const item of queueItems.rows) {
+        if (this.pagesDiscovered >= this.testConfig.max_pages) {
+          logger.info(`Reached max pages limit (${this.testConfig.max_pages})`);
+          break;
+        }
+
+        await this.processQueueItem(item);
+        processedCount++;
+      }
+
+      currentDepth++;
+    }
+
+    logger.info(`✅ Queue processing complete. Processed ${processedCount} items.`);
+  }
+
+  /**
+   * Process a single queue item
+   */
+  async processQueueItem(item) {
+    try {
+      await pool.query(
+        `UPDATE page_discovery_queue
+         SET status = 'processing', started_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [item.id]
+      );
+
+      logger.info(`\n🌐 [Depth ${item.depth_level}] Crawling: ${item.url}`);
+
+      await this.crawlPage(item.url, item.from_page_id, null, item.depth_level);
+
+      const discoveredPage = await pool.query(
+        'SELECT id FROM discovered_pages WHERE test_run_id = $1 AND url = $2',
+        [this.testRunId, item.url]
+      );
+
+      const discoveredPageId = discoveredPage.rows.length > 0 ? discoveredPage.rows[0].id : null;
+
+      await pool.query(
+        `UPDATE page_discovery_queue
+         SET status = 'completed',
+             completed_at = CURRENT_TIMESTAMP,
+             discovered_page_id = $2
+         WHERE id = $1`,
+        [item.id, discoveredPageId]
+      );
+
+    } catch (error) {
+      logger.error(`Failed to process queue item ${item.url}: ${error.message}`);
+
+      await pool.query(
+        `UPDATE page_discovery_queue
+         SET status = 'failed',
+             error_message = $2,
+             completed_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [item.id, error.message]
+      );
     }
   }
 
