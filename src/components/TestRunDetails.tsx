@@ -184,6 +184,14 @@ export default function TestRunDetails() {
           console.log('✅ Progress update matches current test run:', data);
           setCrawlerProgress(data);
 
+          // Update testRun's total_pages_discovered in real-time
+          if (data.discoveredPagesCount !== undefined && testRun) {
+            setTestRun({
+              ...testRun,
+              total_pages_discovered: data.discoveredPagesCount
+            });
+          }
+
           // Refresh test run details when crawling/generation completes
           if (data.phase === 'ready' || data.percentage === 100) {
             console.log('🎉 Crawling completed, refreshing test run details');
@@ -491,7 +499,7 @@ export default function TestRunDetails() {
                 </h3>
               </div>
               <div className="text-sm text-gray-500">
-                {crawlerProgress.discoveredPagesCount} pages discovered
+                {crawlerProgress.discoveredPagesCount || testRun.total_pages_discovered || 0} pages discovered
               </div>
             </div>
             
@@ -805,9 +813,9 @@ export default function TestRunDetails() {
               {activeTab === 'tests' && (
                 <div className="space-y-4">
                   {/* Test Type Filter */}
-                  <div className="flex items-center space-x-4 mb-6">
-                    <span className="text-sm font-medium text-gray-700">Filter by type:</span>
-                    <div className="flex space-x-2">
+                  <div className="mb-6">
+                    <span className="text-sm font-medium text-gray-700 block mb-2">Filter by type:</span>
+                    <div className="flex flex-wrap gap-2">
                       <button 
                         onClick={() => setTestTypeFilter('all')}
                         className={`px-3 py-1 text-xs rounded-full ${
@@ -1106,39 +1114,41 @@ export default function TestRunDetails() {
           </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          <div className="card">
-            <div className="card-header">
-              <h3 className="text-lg font-medium text-gray-900">Test Results</h3>
-            </div>
-            <div className="card-body">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
-                    <span className="text-sm font-medium">Passed</span>
+        {/* Sidebar - Only show Test Results when tests have been executed */}
+        {(testRun.passed_tests > 0 || testRun.failed_tests > 0 || testRun.flaky_tests > 0) && (
+          <div className="space-y-6">
+            <div className="card">
+              <div className="card-header">
+                <h3 className="text-lg font-medium text-gray-900">Test Results</h3>
+              </div>
+              <div className="card-body">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
+                      <span className="text-sm font-medium">Passed</span>
+                    </div>
+                    <span className="text-sm font-semibold">{testRun.passed_tests}</span>
                   </div>
-                  <span className="text-sm font-semibold">{testRun.passed_tests}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <XCircle className="h-5 w-5 text-red-500 mr-2" />
-                    <span className="text-sm font-medium">Failed</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <XCircle className="h-5 w-5 text-red-500 mr-2" />
+                      <span className="text-sm font-medium">Failed</span>
+                    </div>
+                    <span className="text-sm font-semibold">{testRun.failed_tests}</span>
                   </div>
-                  <span className="text-sm font-semibold">{testRun.failed_tests}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" />
-                    <span className="text-sm font-medium">Flaky</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" />
+                      <span className="text-sm font-medium">Flaky</span>
+                    </div>
+                    <span className="text-sm font-semibold">{testRun.flaky_tests}</span>
                   </div>
-                  <span className="text-sm font-semibold">{testRun.flaky_tests}</span>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
