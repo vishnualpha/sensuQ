@@ -13,8 +13,8 @@ class IntelligentPageAnalyzer {
       // Check if page is still valid
       const pageUrl = await page.url().catch(() => null);
       if (!pageUrl) {
-        logger.warn('Page is no longer valid, using fallback analysis');
-        return this.getFallbackAnalysis(page, url);
+        logger.error('Page is no longer valid, cannot analyze');
+        throw new Error('Page is no longer valid');
       }
 
       const screenshot = await page.screenshot({
@@ -35,8 +35,8 @@ class IntelligentPageAnalyzer {
       const pageContext = await this.extractPageContext(page);
 
       if (!pageContext || !pageContext.buttons) {
-        logger.warn('Page context extraction returned invalid data, using fallback');
-        return this.getFallbackAnalysis(page, url);
+        logger.error('Page context extraction returned invalid data');
+        throw new Error('Invalid page context');
       }
 
       const analysis = await this.getLLMPageAnalysis(screenshotBase64, pageContext, url);
@@ -44,7 +44,7 @@ class IntelligentPageAnalyzer {
       return analysis;
     } catch (error) {
       logger.error(`Error analyzing page with vision: ${error.message}`);
-      return this.getFallbackAnalysis(page, url);
+      throw error;
     }
   }
 
@@ -289,7 +289,8 @@ class IntelligentPageAnalyzer {
 
   async getLLMPageAnalysis(screenshotBase64, pageContext, url) {
     if (!this.testGenerator || !this.config.api_key) {
-      return this.getFallbackAnalysisFromContext(pageContext, url);
+      logger.error('No LLM configured for page analysis');
+      throw new Error('LLM configuration required for page analysis');
     }
 
     logger.info(`\n========== PAGE CONTEXT EXTRACTION ==========`);
@@ -348,157 +349,11 @@ class IntelligentPageAnalyzer {
 
       return analysis;
     } catch (error) {
-      logger.warn(`LLM analysis failed: ${error.message}`);
-      return this.getFallbackAnalysisFromContext(pageContext, url);
+      logger.error(`LLM analysis failed: ${error.message}`);
+      throw error;
     }
   }
 
-  getFallbackAnalysisFromContext(pageContext, url) {
-    const priority = this.calculateFallbackPriority(pageContext);
-    const pageType = this.guessPageType(pageContext, url);
-
-    return {
-      pageType,
-      pageValue: priority > 7 ? 'high' : priority > 4 ? 'medium' : 'low',
-      priority,
-      businessRelevance: `Page contains ${pageContext.forms.length} forms and ${pageContext.buttons.length} interactive elements`,
-      keyInteractions: this.identifyBasicInteractions(pageContext),
-      linksToFollow: this.identifyValuableLinks(pageContext),
-      testingOpportunities: [
-        'Page load and basic functionality',
-        'Form validation and submission',
-        'Navigation and link functionality'
-      ],
-      obstacles: this.identifyObstacles(pageContext),
-      recommendations: 'Perform basic crawling with form interaction'
-    };
-  }
-
-  calculateFallbackPriority(pageContext) {
-    let priority = 5;
-
-    if (pageContext.hasLoginForm) priority += 2;
-    if (pageContext.hasSearchForm) priority += 2;
-    if (pageContext.hasMultiStepForm) priority += 1;
-    if (pageContext.forms.length > 0) priority += 1;
-    if (pageContext.buttons.length > 3) priority += 1;
-
-    return Math.min(priority, 10);
-  }
-
-  guessPageType(pageContext, url) {
-    const urlLower = url.toLowerCase();
-
-    if (urlLower.includes('login') || pageContext.hasLoginForm) return 'login';
-    if (urlLower.includes('search') || pageContext.hasSearchForm) return 'search-results';
-    if (urlLower.includes('checkout') || urlLower.includes('cart')) return 'checkout';
-    if (urlLower.includes('product') || urlLower.includes('item')) return 'product-detail';
-    if (urlLower.includes('dashboard')) return 'dashboard';
-    if (urlLower.includes('profile') || urlLower.includes('account')) return 'profile';
-    if (pageContext.forms.length > 2) return 'form';
-    if (urlLower === '/' || urlLower.endsWith('/')) return 'homepage';
-
-    return 'other';
-  }
-
-  identifyBasicInteractions(pageContext) {
-    const interactions = [];
-
-    logger.info(`identifyBasicInteractions: clickableElements = ${pageContext.clickableElements?.length || 0}`);
-
-    if (pageContext.clickableElements && pageContext.clickableElements.length > 0) {
-      const clickables = pageContext.clickableElements.slice(0, 10);
-
-      clickables.forEach((element, index) => {
-        if (element.text && element.text.length > 0) {
-          interactions.push({
-            description: `Click on "${element.text.substring(0, 50)}" to reveal content`,
-            selector: element.selector,
-            type: 'click',
-            expectedOutcome: `Navigate or reveal new content from ${element.text.substring(0, 30)}`,
-            priority: index < 3 ? 'high' : 'medium'
-          });
-        }
-      });
-    }
-
-    if (pageContext.buttons && pageContext.buttons.length > 0) {
-      pageContext.buttons.slice(0, 5).forEach((button, index) => {
-        if (button.text && button.text.length > 0) {
-          const selector = button.attributes.id
-            ? `#${button.attributes.id}`
-            : button.attributes.class
-              ? `.${button.attributes.class.split(' ')[0]}`
-              : 'button';
-
-          interactions.push({
-            description: `Click button: "${button.text.substring(0, 50)}"`,
-            selector: selector,
-            type: 'click',
-            expectedOutcome: `Trigger action from button ${button.text.substring(0, 30)}`,
-            priority: index < 2 ? 'high' : 'medium'
-          });
-        }
-      });
-    }
-
-    if (pageContext.hasSearchForm && pageContext.inputs.length > 0) {
-      const searchInput = pageContext.inputs.find(i =>
-        i.attributes.type === 'search' ||
-        i.attributes.placeholder?.toLowerCase().includes('search')
-      );
-
-      if (searchInput) {
-        interactions.push({
-          description: 'Perform search to reveal results',
-          selector: searchInput.attributes.id ? `#${searchInput.attributes.id}` : 'input[type="search"]',
-          type: 'fill',
-          value: 'test search',
-          expectedOutcome: 'Display search results',
-          priority: 'high'
-        });
-      }
-    }
-
-    if (pageContext.hasModals) {
-      interactions.push({
-        description: 'Close any modals or popups',
-        selector: '[class*="close"], [class*="dismiss"]',
-        type: 'click',
-        expectedOutcome: 'Modal closes',
-        priority: 'high'
-      });
-    }
-
-    logger.info(`identifyBasicInteractions: returning ${interactions.length} interactions`);
-
-    return interactions;
-  }
-
-  identifyValuableLinks(pageContext) {
-    return pageContext.links.slice(0, 10).map(link => ({
-      text: link.text,
-      url: link.attributes?.href || '',
-      reason: 'Discovered navigation link',
-      priority: 'medium',
-      estimatedPageType: 'unknown'
-    }));
-  }
-
-  identifyObstacles(pageContext) {
-    const obstacles = [];
-
-    if (pageContext.hasModals) obstacles.push('Modal dialogs present');
-    if (pageContext.hasCookieBanner) obstacles.push('Cookie consent banner');
-    if (pageContext.hasLoginForm) obstacles.push('Login required');
-
-    return obstacles;
-  }
-
-  async getFallbackAnalysis(page, url) {
-    const pageContext = await this.extractPageContext(page);
-    return this.getFallbackAnalysisFromContext(pageContext, url);
-  }
 }
 
 module.exports = { IntelligentPageAnalyzer };

@@ -25,8 +25,13 @@ class VisionElementIdentifier {
    */
   async identifyInteractiveElements(screenshotBase64, pageSource, url) {
     if (!this.testGenerator || !this.config.api_key) {
-      logger.warn('No LLM configured, falling back to DOM parsing');
-      return this.fallbackDOMParsing(pageSource, url);
+      logger.error('No LLM configured - cannot identify interactive elements');
+      return {
+        screenName: this.generateScreenNameFromUrl(url),
+        pageType: 'unknown',
+        interactiveElements: [],
+        recommendations: ['LLM configuration required for element identification']
+      };
     }
 
     const prompt = this.buildVisionPrompt(url, pageSource);
@@ -47,7 +52,12 @@ class VisionElementIdentifier {
       };
     } catch (error) {
       logger.error(`Vision LLM analysis failed: ${error.message}`);
-      return this.fallbackDOMParsing(pageSource, url);
+      return {
+        screenName: this.generateScreenNameFromUrl(url),
+        pageType: 'unknown',
+        interactiveElements: [],
+        recommendations: [`LLM analysis failed: ${error.message}`]
+      };
     }
   }
 
@@ -195,110 +205,6 @@ CRITICAL:
 
     // Last resort: just the element type
     return element.elementType;
-  }
-
-  /**
-   * Fallback DOM parsing when LLM is not available
-   */
-  fallbackDOMParsing(pageSource, url) {
-    logger.info('Using fallback DOM parsing for element identification');
-
-    const elements = [];
-
-    // Parse buttons
-    const buttonMatches = pageSource.matchAll(/<button[^>]*>(.*?)<\/button>/gi);
-    for (const match of buttonMatches) {
-      const buttonHtml = match[0];
-      const text = match[1].replace(/<[^>]*>/g, '').trim();
-      const idMatch = buttonHtml.match(/id=["']([^"']+)["']/);
-      const classMatch = buttonHtml.match(/class=["']([^"']+)["']/);
-
-      elements.push({
-        element_type: 'button',
-        selector: idMatch ? `#${idMatch[1]}` : (classMatch ? `.${classMatch[1].split(' ')[0]}` : 'button'),
-        text_content: text,
-        attributes: {
-          id: idMatch ? idMatch[1] : null,
-          class: classMatch ? classMatch[1] : null
-        },
-        interaction_priority: 'medium',
-        identified_by: 'dom_parser',
-        metadata: {}
-      });
-    }
-
-    // Parse links - improved to capture more attributes
-    const linkMatches = pageSource.matchAll(/<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi);
-    for (const match of linkMatches) {
-      const linkHtml = match[0];
-      const href = match[1];
-      const text = match[2].replace(/<[^>]*>/g, '').trim();
-      const idMatch = linkHtml.match(/id=["']([^"']+)["']/);
-      const classMatch = linkHtml.match(/class=["']([^"']+)["']/);
-      const nameMatch = linkHtml.match(/name=["']([^"']+)["']/);
-
-      // Skip if no meaningful content
-      if (!text && !idMatch && !nameMatch) continue;
-
-      let selector;
-      if (idMatch) {
-        selector = `#${idMatch[1]}`;
-      } else if (nameMatch) {
-        selector = `a[name="${nameMatch[1]}"]`;
-      } else if (href && href.length < 100 && !href.startsWith('javascript:')) {
-        selector = `a[href="${href}"]`;
-      } else if (classMatch) {
-        const firstClass = classMatch[1].split(' ')[0];
-        selector = `a.${firstClass}`;
-      } else {
-        selector = 'a';
-      }
-
-      elements.push({
-        element_type: 'link',
-        selector: selector,
-        text_content: text,
-        attributes: {
-          href: href,
-          id: idMatch ? idMatch[1] : null,
-          class: classMatch ? classMatch[1] : null,
-          name: nameMatch ? nameMatch[1] : null
-        },
-        interaction_priority: 'medium',
-        identified_by: 'dom_parser',
-        metadata: {}
-      });
-    }
-
-    // Parse inputs
-    const inputMatches = pageSource.matchAll(/<input[^>]*>/gi);
-    for (const match of inputMatches) {
-      const inputHtml = match[0];
-      const idMatch = inputHtml.match(/id=["']([^"']+)["']/);
-      const nameMatch = inputHtml.match(/name=["']([^"']+)["']/);
-      const typeMatch = inputHtml.match(/type=["']([^"']+)["']/);
-
-      elements.push({
-        element_type: 'input',
-        selector: idMatch ? `#${idMatch[1]}` : (nameMatch ? `input[name="${nameMatch[1]}"]` : 'input'),
-        text_content: '',
-        attributes: {
-          id: idMatch ? idMatch[1] : null,
-          name: nameMatch ? nameMatch[1] : null,
-          type: typeMatch ? typeMatch[1] : 'text'
-        },
-        interaction_priority: 'high',
-        identified_by: 'dom_parser',
-        metadata: {}
-      });
-    }
-
-    return {
-      screenName: this.generateScreenNameFromUrl(url),
-      pageType: 'unknown',
-      interactiveElements: elements,
-      recommendations: ['Fallback DOM parsing used - consider configuring LLM for better results']
-    };
   }
 
   /**
