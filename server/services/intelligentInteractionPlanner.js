@@ -73,7 +73,7 @@ class IntelligentInteractionPlanner {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`
           },
-          timeout: 60000
+          timeout: 180000
         }
       );
 

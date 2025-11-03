@@ -77,7 +77,7 @@ class IntelligentTestAdapter {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`
           },
-          timeout: 30000
+          timeout: 180000
         }
       );
 
@@ -355,7 +355,7 @@ Respond with JSON:
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`
           },
-          timeout: 20000
+          timeout: 180000
         }
       );
 

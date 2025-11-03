@@ -134,7 +134,7 @@ class AITestGenerator {
     });
   }
 
-  async callLLM(prompt) {
+  async callLLM(prompt, screenshotBase64 = null) {
     if (!this.apiKey) {
       logger.error('Cannot call LLM: API key is not set');
       throw new Error('LLM API key not configured');
@@ -145,6 +145,24 @@ class AITestGenerator {
       'Authorization': `Bearer ${this.apiKey}`
     };
 
+    let userContent;
+    if (screenshotBase64) {
+      userContent = [
+        {
+          type: 'text',
+          text: prompt
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: `data:image/png;base64,${screenshotBase64}`
+          }
+        }
+      ];
+    } else {
+      userContent = prompt;
+    }
+
     const payload = {
       model: this.modelName,
       messages: [
@@ -154,7 +172,7 @@ class AITestGenerator {
         },
         {
           role: 'user',
-          content: prompt
+          content: userContent
         }
       ],
       max_tokens: this.config.max_tokens || 4000,
@@ -162,10 +180,10 @@ class AITestGenerator {
     };
 
     try {
-      logger.info(`Calling LLM API: ${this.apiUrl} with model ${this.modelName}`);
+      logger.info(`Calling LLM API: ${this.apiUrl} with model ${this.modelName}${screenshotBase64 ? ' (with screenshot)' : ''}`);
       const response = await axios.post(this.apiUrl, payload, {
         headers,
-        timeout: 30000
+        timeout: 180000
       });
 
       return response.data.choices[0].message.content;
@@ -174,6 +192,9 @@ class AITestGenerator {
       if (error.response) {
         logger.error(`Response status: ${error.response.status}`);
         logger.error(`Response data: ${JSON.stringify(error.response.data)}`);
+      }
+      if (error.code === 'ECONNABORTED') {
+        logger.error('LLM call timed out after 180 seconds');
       }
       throw error;
     }
