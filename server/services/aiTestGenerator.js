@@ -130,8 +130,7 @@ class AITestGenerator {
 
     return promptLoader.renderPrompt('flow-test-generation.txt', {
       pageDetails: JSON.stringify(pageDetails, null, 2),
-      businessContext: this.config.business_context || '',
-      userJourneyExamples: this.generateUserJourneyExamples()
+      businessContext: this.config.business_context || ''
     });
   }
 
@@ -193,3 +192,5 @@ class AITestGenerator {
 
 }
 
+
+module.exports = { AITestGenerator };
