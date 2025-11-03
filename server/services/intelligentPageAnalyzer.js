@@ -52,39 +52,59 @@ class IntelligentPageAnalyzer {
       return await page.evaluate(() => {
         try {
         const getElementInfo = (selector) => {
-          return Array.from(document.querySelectorAll(selector)).map(el => ({
-            tag: el.tagName.toLowerCase(),
-            text: el.textContent?.trim().substring(0, 100),
-            attributes: {
-              id: el.id,
-              class: el.className,
-              name: el.name,
-              type: el.type,
-              href: el.href,
-              placeholder: el.placeholder,
-              'aria-label': el.getAttribute('aria-label'),
-              'data-testid': el.getAttribute('data-testid')
-            }
-          }));
+          const elements = Array.from(document.querySelectorAll(selector));
+          return elements
+            .filter(el => {
+              const rect = el.getBoundingClientRect();
+              const style = window.getComputedStyle(el);
+              return rect.width > 0 && rect.height > 0 &&
+                     style.display !== 'none' &&
+                     style.visibility !== 'hidden' &&
+                     style.opacity !== '0';
+            })
+            .map(el => ({
+              tag: el.tagName.toLowerCase(),
+              text: el.textContent?.trim().substring(0, 100),
+              attributes: {
+                id: el.id,
+                class: el.className,
+                name: el.name,
+                type: el.type,
+                href: el.href || el.getAttribute('href'),
+                placeholder: el.placeholder,
+                'aria-label': el.getAttribute('aria-label'),
+                'data-testid': el.getAttribute('data-testid'),
+                title: el.getAttribute('title')
+              }
+            }));
         };
 
         const getClickableElements = () => {
           const elements = [];
           const selectors = [
-            'button',
+            'a',
             'a[href]',
+            'button',
             'input[type="submit"]',
             'input[type="button"]',
+            'input[type="image"]',
             '[role="button"]',
+            '[role="link"]',
             '[onclick]',
             'div[class*="button"]',
             'div[class*="btn"]',
+            'div[class*="link"]',
             'span[class*="button"]',
             'span[class*="btn"]',
+            'span[class*="link"]',
             '[class*="clickable"]',
             '[class*="interactive"]',
             'div[tabindex]',
-            'span[tabindex]'
+            'span[tabindex]',
+            'li[class*="menu"] a',
+            'nav a',
+            '[class*="nav"] a',
+            '[class*="menu"] a'
           ];
 
           const seen = new Set();
@@ -98,24 +118,39 @@ class IntelligentPageAnalyzer {
                 if (rect.width === 0 || rect.height === 0) return;
 
                 const style = window.getComputedStyle(el);
-                if (style.display === 'none' || style.visibility === 'hidden') return;
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return;
 
                 const text = el.textContent?.trim().substring(0, 100);
-                if (!text && !el.href) return;
+                const hasHref = el.tagName.toLowerCase() === 'a' || el.href;
+
+                // For links and buttons, allow if they have href OR text OR meaningful attributes
+                if (!text && !hasHref && !el.getAttribute('aria-label') && !el.getAttribute('title')) return;
 
                 seen.add(el);
 
                 let computedSelector;
-                if (el.id) {
+                const tag = el.tagName.toLowerCase();
+
+                if (el.id && /^[a-zA-Z][\w-]*$/.test(el.id)) {
                   computedSelector = `#${el.id}`;
-                } else if (el.className && typeof el.className === 'string' && el.className.trim()) {
-                  const classes = el.className.trim().split(/\s+/).slice(0, 2);
-                  computedSelector = classes.map(c => `.${c}`).join('');
+                } else if (el.getAttribute('name') && /^[a-zA-Z][\w-]*$/.test(el.getAttribute('name'))) {
+                  computedSelector = `${tag}[name="${el.getAttribute('name')}"]`;
                 } else if (el.getAttribute('data-testid')) {
                   computedSelector = `[data-testid="${el.getAttribute('data-testid')}"]`;
-                } else if (el.href) {
-                  computedSelector = `a[href="${el.getAttribute('href')}"]`;
-                } else {
+                } else if (el.className && typeof el.className === 'string' && el.className.trim()) {
+                  const classes = el.className.trim().split(/\s+/).filter(c => /^[a-zA-Z][\w-]*$/.test(c)).slice(0, 2);
+                  if (classes.length > 0) {
+                    computedSelector = tag + classes.map(c => `.${c}`).join('');
+                  }
+                } else if (el.href && tag === 'a') {
+                  const href = el.getAttribute('href');
+                  if (href && href.length < 100) {
+                    computedSelector = `a[href="${href}"]`;
+                  }
+                }
+
+                // Fallback to nth-of-type path
+                if (!computedSelector) {
                   const xpath = [];
                   let current = el;
                   while (current && current !== document.body) {
@@ -127,26 +162,40 @@ class IntelligentPageAnalyzer {
                     }
                     xpath.unshift(`${current.tagName.toLowerCase()}:nth-of-type(${index})`);
                     current = current.parentElement;
-                    if (xpath.length >= 3) break;
+                    if (xpath.length >= 4) break;
                   }
                   computedSelector = xpath.join(' > ');
                 }
 
                 elements.push({
                   tag: el.tagName.toLowerCase(),
-                  text: text,
+                  text: text || el.getAttribute('aria-label') || el.getAttribute('title') || '',
                   selector: computedSelector,
-                  href: el.href || null,
+                  href: el.href || el.getAttribute('href') || null,
                   hasClickHandler: el.onclick !== null || el.hasAttribute('onclick'),
                   role: el.getAttribute('role'),
                   ariaLabel: el.getAttribute('aria-label'),
-                  classes: el.className
+                  title: el.getAttribute('title'),
+                  name: el.getAttribute('name'),
+                  classes: el.className,
+                  isNested: el.closest('nav, [role="navigation"], ul, ol, menu') !== null
                 });
               });
             } catch (e) {}
           });
 
-          return elements.slice(0, 50);
+          // Sort by priority: navigation elements first, then buttons, then links
+          elements.sort((a, b) => {
+            const getPriority = (el) => {
+              if (el.isNested || el.tag === 'nav') return 0;
+              if (el.tag === 'button' || el.tag === 'input') return 1;
+              if (el.hasClickHandler) return 2;
+              return 3;
+            };
+            return getPriority(a) - getPriority(b);
+          });
+
+          return elements.slice(0, 100);
         };
 
         const getSimplifiedHTML = () => {
@@ -193,11 +242,11 @@ class IntelligentPageAnalyzer {
           forms: getElementInfo('form'),
           inputs: getElementInfo('input:not([type="hidden"])'),
           buttons: getElementInfo('button, input[type="submit"], input[type="button"]'),
-          links: getElementInfo('a[href]').slice(0, 50),
+          links: getElementInfo('a').slice(0, 100),
           clickableElements: getClickableElements(),
           selects: getElementInfo('select'),
           textareas: getElementInfo('textarea'),
-          navElements: getElementInfo('nav, [role="navigation"]'),
+          navElements: getElementInfo('nav, [role="navigation"], [class*="nav"], [class*="menu"]'),
           mainContent: document.querySelector('main, [role="main"], article')?.textContent?.trim().substring(0, 500) || '',
           simplifiedHTML: getSimplifiedHTML(),
           hasModals: document.querySelectorAll('[class*="modal"], [class*="dialog"], [class*="popup"]').length > 0,
@@ -267,7 +316,7 @@ class IntelligentPageAnalyzer {
       hasSearchForm: pageContext.hasSearchForm,
       hasMultiStepForm: pageContext.hasMultiStepForm,
       hasModals: pageContext.hasModals,
-      availableLinks: JSON.stringify(pageContext.links.slice(0, 30), null, 2),
+      availableLinks: JSON.stringify(pageContext.links.slice(0, 50), null, 2),
       mainContent: pageContext.mainContent
     });
 

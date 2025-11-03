@@ -51,28 +51,47 @@ class VisionElementIdentifier {
   }
 
   /**
+   * Clean HTML for analysis - keep structure but remove noise
+   */
+  cleanHtmlForAnalysis(html) {
+    let cleaned = html;
+
+    // Remove script and style content
+    cleaned = cleaned.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+    cleaned = cleaned.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+
+    // Remove comments
+    cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, '');
+
+    // Keep only first 20000 chars
+    return cleaned.substring(0, 20000);
+  }
+
+  /**
    * Build prompt for vision LLM
    */
   buildVisionPrompt(url, pageSource) {
-    return `You are an expert web testing analyst. Analyze this webpage screenshot and HTML source to identify ALL interactive elements that a user can interact with.
+    // Extract a more comprehensive view of the page structure
+    const cleanedSource = this.cleanHtmlForAnalysis(pageSource);
+
+    return `Analyze this webpage to identify ALL interactive elements.
 
 URL: ${url}
 
 TASK:
-1. Look at the screenshot and identify ALL visible interactive elements (buttons, links, inputs, dropdowns, toggles, etc.)
-2. For each element, provide:
-   - A clear description of what it does
-   - The text/label visible on the element
-   - The element type (button, link, input, select, etc.)
-   - Any unique attributes that can help locate it (id, class, data attributes)
-   - Priority level (high, medium, low) based on how important it is for testing
-3. Determine a meaningful screen name for this page (e.g., "Login Page", "Product Listing", "Checkout - Step 1")
-4. Classify the page type (login, dashboard, form, product-detail, checkout, search, profile, etc.)
+1. Find ALL interactive elements: buttons, links, inputs, forms, dropdowns, navigation menus
+2. Look for nested elements (nav menus, dropdown items, modal buttons)
+3. For EACH element provide:
+   - Description and visible text
+   - Element type (button, link, input, select, etc.)
+   - Attributes (id, class, name, href, data-*)
+   - Priority (high/medium/low)
+4. Screen name and page type
 
-HTML Source (first 5000 chars):
-${pageSource.substring(0, 5000)}
+HTML (up to 20KB):
+${cleanedSource}
 
-RESPOND ONLY WITH VALID JSON in this exact format:
+Return ONLY valid JSON:
 {
   "screenName": "A descriptive name for this screen",
   "pageType": "page-type-classification",
@@ -97,12 +116,12 @@ RESPOND ONLY WITH VALID JSON in this exact format:
   ]
 }
 
-IMPORTANT:
-- Include ALL interactive elements, not just the obvious ones
-- Be thorough - modal buttons, dropdown items, form fields, navigation links, etc.
-- Provide accurate text content as it appears visually
-- Include enough attributes to uniquely identify each element
-- Prioritize elements that are critical for user flows (high), useful for testing (medium), or minor (low)`;
+CRITICAL:
+- Include NESTED elements (nav items, menu links, nested buttons)
+- Check navigation bars, sidebars, headers, footers
+- Look for elements in lists (ul, ol, li)
+- Include ALL links, not just top-level ones
+- Provide complete attributes for unique identification`;
   }
 
   /**
@@ -207,21 +226,42 @@ IMPORTANT:
       });
     }
 
-    // Parse links
+    // Parse links - improved to capture more attributes
     const linkMatches = pageSource.matchAll(/<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi);
     for (const match of linkMatches) {
       const linkHtml = match[0];
       const href = match[1];
       const text = match[2].replace(/<[^>]*>/g, '').trim();
       const idMatch = linkHtml.match(/id=["']([^"']+)["']/);
+      const classMatch = linkHtml.match(/class=["']([^"']+)["']/);
+      const nameMatch = linkHtml.match(/name=["']([^"']+)["']/);
+
+      // Skip if no meaningful content
+      if (!text && !idMatch && !nameMatch) continue;
+
+      let selector;
+      if (idMatch) {
+        selector = `#${idMatch[1]}`;
+      } else if (nameMatch) {
+        selector = `a[name="${nameMatch[1]}"]`;
+      } else if (href && href.length < 100 && !href.startsWith('javascript:')) {
+        selector = `a[href="${href}"]`;
+      } else if (classMatch) {
+        const firstClass = classMatch[1].split(' ')[0];
+        selector = `a.${firstClass}`;
+      } else {
+        selector = 'a';
+      }
 
       elements.push({
         element_type: 'link',
-        selector: idMatch ? `#${idMatch[1]}` : `a[href="${href}"]`,
+        selector: selector,
         text_content: text,
         attributes: {
           href: href,
-          id: idMatch ? idMatch[1] : null
+          id: idMatch ? idMatch[1] : null,
+          class: classMatch ? classMatch[1] : null,
+          name: nameMatch ? nameMatch[1] : null
         },
         interaction_priority: 'medium',
         identified_by: 'dom_parser',
