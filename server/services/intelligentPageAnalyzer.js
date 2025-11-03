@@ -1,6 +1,7 @@
 const logger = require('../utils/logger');
 const promptLoader = require('../utils/promptLoader');
 const { extractJSON } = require('../utils/jsonExtractor');
+const { ElementIdentifier } = require('../utils/elementIdentifier');
 
 class IntelligentPageAnalyzer {
   constructor(testGenerator, config) {
@@ -49,6 +50,47 @@ class IntelligentPageAnalyzer {
   }
 
   async extractPageContext(page) {
+    try {
+      const elementsResult = await ElementIdentifier.extractFromPage(page);
+
+      if (!elementsResult.success) {
+        logger.warn('ElementIdentifier failed, falling back to legacy extraction');
+        return await this.extractPageContextLegacy(page);
+      }
+
+      const pageInfo = await page.evaluate(() => {
+        return {
+          url: window.location.href,
+          title: document.title,
+          metaDescription: document.querySelector('meta[name="description"]')?.content || '',
+          hasModals: document.querySelectorAll('[class*="modal"], [class*="dialog"], [class*="popup"]').length > 0,
+          hasCookieBanner: document.querySelectorAll('[class*="cookie"], [class*="consent"]').length > 0,
+          hasLoginForm: document.querySelectorAll('input[type="password"]').length > 0,
+          hasSearchForm: document.querySelectorAll('input[type="search"], input[placeholder*="search" i]').length > 0,
+          hasMultiStepForm: document.querySelectorAll('[class*="step"], [class*="wizard"], [data-step]').length > 0,
+          mainContent: document.querySelector('main, [role="main"], article')?.textContent?.trim().substring(0, 500) || ''
+        };
+      });
+
+      return {
+        ...pageInfo,
+        elements: elementsResult.data,
+        buttons: elementsResult.data.grouped.buttons,
+        inputs: elementsResult.data.grouped.inputs,
+        links: elementsResult.data.grouped.links,
+        selects: elementsResult.data.grouped.selects,
+        textareas: elementsResult.data.grouped.textareas,
+        forms: [],
+        clickableElements: [...elementsResult.data.grouped.buttons, ...elementsResult.data.grouped.other],
+        elementsFormatted: elementsResult.formatted
+      };
+    } catch (error) {
+      logger.error(`Error extracting page context: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async extractPageContextLegacy(page) {
     try {
       return await page.evaluate(() => {
         try {
@@ -301,24 +343,25 @@ class IntelligentPageAnalyzer {
       logger.info(`Sample clickable elements: ${JSON.stringify(pageContext.clickableElements.slice(0, 3), null, 2)}`);
     }
 
+    const interactiveElementsSummary = pageContext.elementsFormatted ||
+      JSON.stringify(pageContext.clickableElements || [], null, 2);
+
     const prompt = promptLoader.renderPrompt('page-analysis.txt', {
       businessContext: this.config.business_context || '',
       url: url,
       title: pageContext.title,
       metaDescription: pageContext.metaDescription,
-      headings: JSON.stringify(pageContext.headings.h1),
-      formsCount: pageContext.forms.length,
-      buttonsCount: pageContext.buttons.length,
-      inputsCount: pageContext.inputs.length,
-      linksCount: pageContext.links.length,
+      headings: JSON.stringify(pageContext.headings?.h1 || []),
+      formsCount: pageContext.forms?.length || 0,
+      buttonsCount: pageContext.buttons?.length || 0,
+      inputsCount: pageContext.inputs?.length || 0,
+      linksCount: pageContext.links?.length || 0,
       clickableElementsCount: pageContext.clickableElements?.length || 0,
-      clickableElements: JSON.stringify(pageContext.clickableElements || [], null, 2),
-      simplifiedHTML: pageContext.simplifiedHTML || '',
+      interactiveElements: interactiveElementsSummary,
       hasLoginForm: pageContext.hasLoginForm,
       hasSearchForm: pageContext.hasSearchForm,
       hasMultiStepForm: pageContext.hasMultiStepForm,
       hasModals: pageContext.hasModals,
-      availableLinks: JSON.stringify(pageContext.links.slice(0, 50), null, 2),
       mainContent: pageContext.mainContent
     });
 

@@ -10,25 +10,20 @@ PAGE INFO:
 - Forms: {{formsCount}}, Buttons: {{buttonsCount}}, Inputs: {{inputsCount}}, Links: {{linksCount}}
 - Login form: {{hasLoginForm}}, Search: {{hasSearchForm}}, Multi-step form: {{hasMultiStepForm}}
 
-SIMPLIFIED HTML STRUCTURE (includes nested elements):
-{{simplifiedHTML}}
+INTERACTIVE ELEMENTS ({{clickableElementsCount}} found):
+Each element has a unique ID [el_XXX] and selector. Reference these in your response.
 
-CLICKABLE ELEMENTS ({{clickableElementsCount}} found):
-{{clickableElements}}
-
-AVAILABLE LINKS (select from these):
-{{availableLinks}}
+{{interactiveElements}}
 
 YOUR TASK:
 1. Identify 3-5 key interactions that reveal new content or navigate to new pages
-2. Use selectors from CLICKABLE ELEMENTS list above
-3. Select important links to follow from AVAILABLE LINKS
-4. Focus on navigation, forms, buttons, and business-critical features
+2. Use element IDs [el_XXX] or selectors from INTERACTIVE ELEMENTS above
+3. Focus on navigation, forms, buttons, and business-critical features
 
 IMPORTANT:
-- Modern apps use div/span as buttons - check CLICKABLE ELEMENTS
-- For linksToFollow, use actual URLs from AVAILABLE LINKS
-- Use the simplified HTML to understand page structure and find nested elements
+- Reference elements by their ID (e.g., [el_1]) or provided selector
+- Modern apps use div/span as buttons - they are identified above
+- Consider element context (labels, placeholders) for better understanding
 
 Return JSON:
 {
