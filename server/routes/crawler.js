@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { AutonomousCrawler } = require('../services/autonomousCrawler');
+const { decrypt } = require('../utils/encryption');
 
 const router = express.Router();
 
@@ -25,11 +26,29 @@ router.post('/start', async (req, res) => {
       return res.status(404).json({ error: 'Test configuration not found' });
     }
 
+    let auth_username = null;
+    let auth_password = null;
+
+    if (configResult.rows[0].credentials) {
+      try {
+        const decryptedCreds = decrypt(configResult.rows[0].credentials);
+        if (decryptedCreds) {
+          const creds = JSON.parse(decryptedCreds);
+          auth_username = creds.username || creds.email;
+          auth_password = creds.password;
+        }
+      } catch (error) {
+        console.error('Error decrypting credentials:', error);
+      }
+    }
+
     const testConfig = {
       target_url: configResult.rows[0].target_url,
       max_depth: configResult.rows[0].max_depth || 3,
       max_pages: configResult.rows[0].max_pages || 50,
-      credentials: configResult.rows[0].credentials
+      credentials: configResult.rows[0].credentials,
+      auth_username,
+      auth_password
     };
 
     const llmConfig = {

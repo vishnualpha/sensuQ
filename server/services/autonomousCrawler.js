@@ -18,6 +18,10 @@ class AutonomousCrawler {
     this.testConfig = testConfig;
     this.llmConfig = llmConfig;
     this.io = io;
+
+    logger.info(`AutonomousCrawler initialized with credentials:`);
+    logger.info(`  auth_username: ${testConfig.auth_username || 'NOT SET'}`);
+    logger.info(`  auth_password: ${testConfig.auth_password ? '***SET***' : 'NOT SET'}`);
     this.visionIdentifier = new VisionElementIdentifier(llmConfig);
     this.pageTestGenerator = new PageLevelTestGenerator(llmConfig);
     this.flowTestGenerator = new FlowLevelTestGenerator(llmConfig);
@@ -579,9 +583,15 @@ class AutonomousCrawler {
         let fillValue = step.value || 'test data';
 
         if (fillValue === '{auth_username}' && this.testConfig.auth_username) {
+          logger.info(`Substituting {auth_username} with configured username: ${this.testConfig.auth_username}`);
           fillValue = this.testConfig.auth_username;
         } else if (fillValue === '{auth_password}' && this.testConfig.auth_password) {
+          logger.info(`Substituting {auth_password} with configured password`);
           fillValue = this.testConfig.auth_password;
+        } else if (fillValue === '{auth_username}' || fillValue === '{auth_password}') {
+          logger.warn(`Placeholder ${fillValue} found but no credentials configured!`);
+          logger.warn(`testConfig.auth_username: ${this.testConfig.auth_username}`);
+          logger.warn(`testConfig.auth_password: ${this.testConfig.auth_password ? '***' : 'null'}`);
         }
 
         await this.smartFill(this.page, selector, fillValue);
@@ -617,9 +627,15 @@ class AutonomousCrawler {
         let fillValue = step.value || 'test data';
 
         if (fillValue === '{auth_username}' && this.testConfig.auth_username) {
+          logger.info(`[Locator] Substituting {auth_username} with configured username: ${this.testConfig.auth_username}`);
           fillValue = this.testConfig.auth_username;
         } else if (fillValue === '{auth_password}' && this.testConfig.auth_password) {
+          logger.info(`[Locator] Substituting {auth_password} with configured password`);
           fillValue = this.testConfig.auth_password;
+        } else if (fillValue === '{auth_username}' || fillValue === '{auth_password}') {
+          logger.warn(`[Locator] Placeholder ${fillValue} found but no credentials configured!`);
+          logger.warn(`testConfig.auth_username: ${this.testConfig.auth_username}`);
+          logger.warn(`testConfig.auth_password: ${this.testConfig.auth_password ? '***' : 'null'}`);
         }
 
         await locator.fill(fillValue);
