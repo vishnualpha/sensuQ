@@ -371,6 +371,15 @@ class IntelligentInteractionHandler {
     const initialUrl = page.url();
     const initialModalCount = await page.locator('[role="dialog"], [class*="modal"]').count();
 
+    let substitutedValue = value;
+    if (value === '{auth_username}' && this.config?.auth_username) {
+      substitutedValue = this.config.auth_username;
+      logger.info(`Substituting {auth_username} with configured username`);
+    } else if (value === '{auth_password}' && this.config?.auth_password) {
+      substitutedValue = this.config.auth_password;
+      logger.info(`Substituting {auth_password} with configured password`);
+    }
+
     // Try clicking the field first - some fields open search dialogs/dropdowns
     try {
       await element.click({ timeout: 2000 });
@@ -387,7 +396,7 @@ class IntelligentInteractionHandler {
         const dialogInputExists = await dialogInput.count();
 
         if (dialogInputExists > 0) {
-          const fillValue = value || this.generateContextualValue(interaction, selector);
+          const fillValue = substitutedValue || this.generateContextualValue(interaction, selector);
           await dialogInput.fill(fillValue, { timeout: 3000 });
           logger.info(`✅ Filled search dialog with: ${fillValue}`);
           await page.waitForTimeout(1000);
@@ -406,26 +415,28 @@ class IntelligentInteractionHandler {
       logger.debug(`Pre-click failed: ${e.message}`);
     }
 
-    // Try smart form filling
-    try {
-      const fieldInfo = {
-        selector,
-        name: await element.getAttribute('name').catch(() => ''),
-        label: interaction.description || '',
-        placeholder: await element.getAttribute('placeholder').catch(() => '')
-      };
-      const fillResult = await this.formFiller.analyzeAndFillField(page, selector, fieldInfo);
-      if (fillResult.success) {
-        logger.info(`✅ Smart-filled ${selector} with: ${fillResult.value}`);
-        return true;
+    // Try smart form filling (only if no explicit value provided)
+    if (!substitutedValue) {
+      try {
+        const fieldInfo = {
+          selector,
+          name: await element.getAttribute('name').catch(() => ''),
+          label: interaction.description || '',
+          placeholder: await element.getAttribute('placeholder').catch(() => '')
+        };
+        const fillResult = await this.formFiller.analyzeAndFillField(page, selector, fieldInfo);
+        if (fillResult.success) {
+          logger.info(`✅ Smart-filled ${selector} with: ${fillResult.value}`);
+          return true;
+        }
+      } catch (e) {
+        logger.debug(`Smart fill failed: ${e.message}`);
       }
-    } catch (e) {
-      logger.debug(`Smart fill failed: ${e.message}`);
     }
 
     // Try standard fill
     try {
-      const fallbackValue = value || this.generateContextualValue(interaction, selector);
+      const fallbackValue = substitutedValue || this.generateContextualValue(interaction, selector);
       await element.fill(fallbackValue, { timeout: 3000 });
       logger.info(`✅ Filled ${selector} with: ${fallbackValue}`);
       return true;
@@ -435,7 +446,7 @@ class IntelligentInteractionHandler {
 
     // Try type (character by character)
     try {
-      const fallbackValue = value || this.generateContextualValue(interaction, selector);
+      const fallbackValue = substitutedValue || this.generateContextualValue(interaction, selector);
       await element.click({ timeout: 2000 });
       await element.type(fallbackValue, { delay: 50 });
       logger.info(`✅ Typed into ${selector}: ${fallbackValue}`);
