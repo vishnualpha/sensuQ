@@ -96,13 +96,29 @@ class TestExecutor {
   async executeSelectedTests() {
     // Get test config with auth credentials
     const testConfigResult = await pool.query(`
-      SELECT tc.auth_username, tc.auth_password
+      SELECT tc.credentials
       FROM test_runs tr
       JOIN test_configs tc ON tr.test_config_id = tc.id
       WHERE tr.id = $1
     `, [this.testRunId]);
 
-    this.testConfig = testConfigResult.rows[0] || {};
+    this.testConfig = {};
+
+    if (testConfigResult.rows.length > 0 && testConfigResult.rows[0].credentials) {
+      try {
+        const decryptedCreds = decrypt(testConfigResult.rows[0].credentials);
+        if (decryptedCreds) {
+          const creds = JSON.parse(decryptedCreds);
+          this.testConfig.auth_username = creds.username || creds.email;
+          this.testConfig.auth_password = creds.password;
+          logger.info(`Test executor loaded credentials: username=${this.testConfig.auth_username}, password=${this.testConfig.auth_password ? '***' : 'null'}`);
+        }
+      } catch (error) {
+        logger.error(`Error decrypting credentials in test executor: ${error.message}`);
+      }
+    } else {
+      logger.warn('No credentials found for test execution');
+    }
 
     // Get selected test cases or all if none specified
     let whereClause = 'tc.test_run_id = $1';
