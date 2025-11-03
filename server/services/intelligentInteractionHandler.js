@@ -5,7 +5,10 @@ class IntelligentInteractionHandler {
   constructor(testGenerator, config) {
     this.testGenerator = testGenerator;
     this.config = config;
-    this.formFiller = new SmartFormFiller();
+    this.formFiller = new SmartFormFiller({
+      auth_username: config?.auth_username,
+      auth_password: config?.auth_password
+    });
   }
 
   async handlePageObstacles(page, analysis) {

@@ -94,15 +94,25 @@ class TestExecutor {
   }
 
   async executeSelectedTests() {
+    // Get test config with auth credentials
+    const testConfigResult = await pool.query(`
+      SELECT tc.auth_username, tc.auth_password
+      FROM test_runs tr
+      JOIN test_configs tc ON tr.test_config_id = tc.id
+      WHERE tr.id = $1
+    `, [this.testRunId]);
+
+    this.testConfig = testConfigResult.rows[0] || {};
+
     // Get selected test cases or all if none specified
     let whereClause = 'tc.test_run_id = $1';
     let params = [this.testRunId];
-    
+
     if (this.selectedTestCaseIds.length > 0) {
       whereClause += ` AND tc.id = ANY($2)`;
       params.push(this.selectedTestCaseIds);
     }
-    
+
     const testCasesResult = await pool.query(`
       SELECT tc.*, dp.url, dp.title
       FROM test_cases tc
@@ -380,7 +390,18 @@ class TestExecutor {
           if (!step.value) {
             logger.warn(`Fill action has no value, using empty string for selector: ${step.selector}`);
           }
-          await this.smartFillWithRetry(page, step.selector, step.value || '', timeout);
+          let fillValue = step.value || '';
+
+          // Substitute auth placeholders
+          if (fillValue === '{auth_username}' && this.testConfig?.auth_username) {
+            fillValue = this.testConfig.auth_username;
+            logger.info(`Substituting {auth_username} with configured username`);
+          } else if (fillValue === '{auth_password}' && this.testConfig?.auth_password) {
+            fillValue = this.testConfig.auth_password;
+            logger.info(`Substituting {auth_password} with configured password`);
+          }
+
+          await this.smartFillWithRetry(page, step.selector, fillValue, timeout);
           break;
         case 'select':
           await this.smartSelectWithRetry(page, step.selector, step.value, timeout);

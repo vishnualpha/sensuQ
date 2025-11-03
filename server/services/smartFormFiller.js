@@ -1,7 +1,8 @@
 const logger = require('../utils/logger');
 
 class SmartFormFiller {
-  constructor() {
+  constructor(authCredentials = {}) {
+    this.authCredentials = authCredentials;
     this.testDataPatterns = {
       email: [
         'test.user@example.com',
@@ -104,6 +105,17 @@ class SmartFormFiller {
   }
 
   generateValueForField(fieldType, fieldInfo) {
+    // Check if this is an auth field and we have credentials
+    if (fieldType === 'email' && this.authCredentials.auth_username) {
+      return this.authCredentials.auth_username;
+    }
+    if (fieldType === 'username' && this.authCredentials.auth_username) {
+      return this.authCredentials.auth_username;
+    }
+    if (fieldType === 'password' && this.authCredentials.auth_password) {
+      return this.authCredentials.auth_password;
+    }
+
     if (this.testDataPatterns[fieldType]) {
       const values = this.testDataPatterns[fieldType];
       return values[Math.floor(Math.random() * values.length)];
