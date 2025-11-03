@@ -1,86 +1,90 @@
-You are an expert QA engineer specializing in FUNCTIONAL TESTING and USER JOURNEY VALIDATION. Your primary goal is to create REALISTIC, BUSINESS-FOCUSED test cases that real users would perform.
+You are creating functional test cases that simulate real user interactions.
 
-CURRENT PAGE ANALYSIS:
+PAGE INFO:
 - URL: {{url}}
 - Title: {{title}}
-- Interactive Elements: {{elementsCount}}
-- Available Forms: {{forms}}
-- Available Buttons: {{buttons}}
-- Available Inputs: {{inputs}}
-- Available Selects: {{selects}}
+- Elements: {{elementsCount}}
+- Forms: {{forms}}, Buttons: {{buttons}}, Inputs: {{inputs}}
 
-NAVIGATION ELEMENTS:
+NAVIGATION:
 {{navigationElements}}
 
-PAGE STRUCTURE NOTES:
-{{pageStructure}}
-
-BUSINESS/APPLICATION CONTEXT:
+BUSINESS CONTEXT:
 {{businessContext}}
 
-CRITICAL REQUIREMENTS FOR COMPLETE TEST FLOWS:
-1. Generate ONLY FUNCTIONAL test cases that simulate real user interactions
-2. Use the business context to create REALISTIC scenarios that actual users would perform
-3. **ALWAYS include prerequisite navigation steps** - if a form/element requires clicking a menu item or navigation link first, include that click as the FIRST step
-4. Look at navigation elements and page structure to understand what needs to be clicked to access content
-5. For pages with sidebar menus or navigation (like demoqa.com), ALWAYS click the relevant menu item BEFORE interacting with form fields
-6. Create detailed test steps with SPECIFIC selectors and realistic test data
-7. Include CLEAR expected results and validation criteria
-8. Generate scenarios that drive business value and test core functionality
+YOUR TASK:
+Create 5-10 functional test cases that real users would perform.
 
-EXAMPLE - Correct Test Flow with Navigation:
-If testing a form that appears after clicking "Practice Form" in a sidebar:
-Step 1: Click the navigation item (e.g., click "Practice Form" menu)
-Step 2: Wait for form to appear
-Step 3: Fill form fields
-Step 4: Submit form
+KEY RULES:
+1. Include navigation steps FIRST if content requires clicking menu/nav items
+2. Use realistic test data based on business context
+3. Use specific CSS selectors from the page
+4. Include clear expected results
 
-DO NOT skip the navigation step! The test will fail if you try to fill fields that aren't visible yet.
-
-FUNCTIONAL TEST FOCUS (100% of tests should be functional):
-- Form submissions with domain-specific realistic data
-- Search and filter operations with business-relevant queries
-- User registration and login workflows
-- Product/service selection and interaction flows
-- Data entry and validation with real-world scenarios
-- Navigation through multi-step business processes
-- Transaction and conversion workflows
-
-REALISTIC TEST DATA EXAMPLES BASED ON BUSINESS CONTEXT:
+TEST DATA EXAMPLES:
 {{testDataExamples}}
 
-EXPECTED VS ACTUAL RESULTS:
-- Expected Result: What should happen when the test steps are executed successfully
-- Actual Result: Will be populated during test execution with real browser results
-
-Return ONLY functional test cases in this exact JSON format:
+EXAMPLE - Login Test:
 {
   "testCases": [
     {
       "type": "functional",
-      "name": "Business-focused test case name that describes the user goal",
-      "description": "Detailed description of the business scenario and user intent",
+      "name": "User login with valid credentials",
+      "description": "User logs in with email and password",
       "steps": [
         {
-          "action": "navigate|click|fill|select|wait|assert|verify",
-          "selector": "specific CSS selector (leave empty for navigate action)",
-          "value": "for navigate: the URL to visit; for fill/select: the data to input",
-          "description": "Clear description of what this step does and why"
+          "action": "navigate",
+          "selector": "",
+          "value": "https://example.com/login",
+          "description": "Navigate to login page"
+        },
+        {
+          "action": "fill",
+          "selector": "#email",
+          "value": "{auth_username}",
+          "description": "Enter email"
+        },
+        {
+          "action": "fill",
+          "selector": "#password",
+          "value": "{auth_password}",
+          "description": "Enter password"
+        },
+        {
+          "action": "click",
+          "selector": "#login-button",
+          "value": "",
+          "description": "Click login button"
+        },
+        {
+          "action": "verify",
+          "selector": ".dashboard",
+          "value": "",
+          "description": "Verify dashboard appears"
         }
       ],
-      "expectedResult": "Specific, measurable expected outcome that can be validated",
-      "priority": "high|medium|low",
-      "businessValue": "Clear explanation of why this test matters for business success",
+      "expectedResult": "User is authenticated and redirected to dashboard",
+      "priority": "high",
+      "businessValue": "Validates core authentication flow",
       "validationCriteria": [
-        "Specific criteria to validate success",
-        "Measurable outcomes to check",
-        "Error conditions to verify"
+        "Login button responds",
+        "User redirected to dashboard",
+        "No error messages shown"
       ]
     }
   ]
 }
 
-Generate 6-10 FUNCTIONAL test cases that represent real user goals and business workflows.
-Each test case must have clear expected results and validation criteria.
-Use realistic test data that matches the business domain and user personas.
-Focus on scenarios that drive business value and test critical functionality.
+ACTIONS:
+- navigate: Go to URL (value = URL)
+- click: Click element
+- fill: Enter text (value = text to enter)
+- select: Choose option (value = option value)
+- wait: Wait for element
+- verify: Check element exists
+
+SPECIAL TOKENS:
+- {auth_username}: Use for username/email fields
+- {auth_password}: Use for password fields
+
+Return ONLY valid JSON with test cases.

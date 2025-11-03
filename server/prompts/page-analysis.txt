@@ -1,80 +1,61 @@
-You are an expert web crawler analyzing a web page to make intelligent decisions about:
-1. What content is visible and valuable
-2. What interactions would reveal more content
-3. What links/pages should be crawled next
-4. Priority of different elements for testing
+You are analyzing a web page to decide what to test and where to navigate next.
 
 BUSINESS CONTEXT: {{businessContext}}
 
-PAGE INFORMATION:
+PAGE INFO:
 - URL: {{url}}
 - Title: {{title}}
-- Meta Description: {{metaDescription}}
+- Forms: {{formsCount}}, Buttons: {{buttonsCount}}, Inputs: {{inputsCount}}, Links: {{linksCount}}
+- Login form: {{hasLoginForm}}, Search: {{hasSearchForm}}, Multi-step form: {{hasMultiStepForm}}
 
-PAGE STRUCTURE:
-- Main headings: {{headings}}
-- Forms: {{formsCount}} found
-- Interactive elements: {{buttonsCount}} buttons, {{inputsCount}} inputs
-- Navigation links: {{linksCount}} links
-- Clickable elements: {{clickableElementsCount}} found (includes buttons, divs, spans with click handlers)
-- Has login form: {{hasLoginForm}}
-- Has search form: {{hasSearchForm}}
-- Has multi-step form: {{hasMultiStepForm}}
-- Has modals: {{hasModals}}
+SIMPLIFIED HTML STRUCTURE (includes nested elements):
+{{simplifiedHTML}}
 
-CLICKABLE ELEMENTS ON PAGE (modern web apps often use divs/spans as buttons):
+CLICKABLE ELEMENTS ({{clickableElementsCount}} found):
 {{clickableElements}}
 
 AVAILABLE LINKS (select from these):
 {{availableLinks}}
 
-MAIN CONTENT PREVIEW:
-{{mainContent}}
+YOUR TASK:
+1. Identify 3-5 key interactions that reveal new content or navigate to new pages
+2. Use selectors from CLICKABLE ELEMENTS list above
+3. Select important links to follow from AVAILABLE LINKS
+4. Focus on navigation, forms, buttons, and business-critical features
 
-Analyze the screenshot and page context to provide:
+IMPORTANT:
+- Modern apps use div/span as buttons - check CLICKABLE ELEMENTS
+- For linksToFollow, use actual URLs from AVAILABLE LINKS
+- Use the simplified HTML to understand page structure and find nested elements
 
-CRITICAL INSTRUCTIONS FOR KEY INTERACTIONS:
-1. Modern web applications use DIVs, SPANs, and other elements as clickable buttons
-2. Look at the CLICKABLE ELEMENTS list - these have click handlers or look like buttons
-3. You MUST identify at least 3-5 key interactions that could reveal new content or navigate to new pages
-4. Use the selectors provided in the CLICKABLE ELEMENTS list
-5. Focus on elements that look like navigation, cards, tiles, menu items, or call-to-action buttons
-6. Even if they're not traditional <button> or <a> tags, they should be clicked if they look interactive
-
-IMPORTANT: For linksToFollow, select URLs from the AVAILABLE LINKS list above. Match the link text to find the correct URL.
-
+Return JSON:
 {
-  "pageType": "homepage|login|search-results|product-listing|product-detail|checkout|form|dashboard|profile|settings|article|other",
-  "pageValue": "high|medium|low - how valuable is this page for testing",
-  "priority": number 1-10 for crawling priority,
-  "businessRelevance": "Explain how this page relates to core business functionality",
+  "pageType": "homepage|login|dashboard|form|other",
+  "pageValue": "high|medium|low",
+  "priority": 1-10,
+  "businessRelevance": "brief explanation",
   "keyInteractions": [
     {
-      "description": "What interaction to perform",
-      "selector": "CSS selector",
-      "type": "click|fill|select|submit",
-      "value": "value if needed",
-      "expectedOutcome": "What new content/page this reveals",
+      "description": "what to do",
+      "selector": "CSS selector from list",
+      "type": "click|fill|select",
+      "value": "optional value",
+      "expectedOutcome": "what happens",
       "priority": "high|medium|low"
     }
   ],
   "linksToFollow": [
     {
-      "text": "link text or button text",
-      "url": "full URL from the AVAILABLE LINKS list - MUST be an actual URL from the page",
-      "reason": "Why this link is valuable to follow",
+      "text": "link text",
+      "url": "full URL from AVAILABLE LINKS",
+      "reason": "why valuable",
       "priority": "high|medium|low",
-      "estimatedPageType": "guess what type of page this leads to"
+      "estimatedPageType": "guess page type"
     }
   ],
-  "testingOpportunities": [
-    "List specific testing scenarios this page enables",
-    "Focus on functional, business-critical tests"
-  ],
-  "obstacles": [
-    "List any popups, modals, login walls, or obstacles to crawling"
-  ],
-  "recommendations": "Strategic recommendations for crawling this page effectively"
+  "testingOpportunities": ["test scenario 1", "test scenario 2"],
+  "obstacles": ["any popups, modals, or blockers"],
+  "recommendations": "brief strategy"
 }
 
 Return ONLY valid JSON.

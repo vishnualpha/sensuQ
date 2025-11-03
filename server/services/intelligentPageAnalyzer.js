@@ -146,7 +146,40 @@ class IntelligentPageAnalyzer {
             } catch (e) {}
           });
 
-          return elements.slice(0, 30);
+          return elements.slice(0, 50);
+        };
+
+        const getSimplifiedHTML = () => {
+          const clone = document.body.cloneNode(true);
+
+          // Remove script and style tags
+          clone.querySelectorAll('script, style, noscript, iframe').forEach(el => el.remove());
+
+          // Remove hidden elements
+          Array.from(clone.querySelectorAll('*')).forEach(el => {
+            const style = window.getComputedStyle(document.querySelector(el.tagName));
+            if (style && (style.display === 'none' || style.visibility === 'hidden')) {
+              el.remove();
+            }
+          });
+
+          // Simplify attributes - keep only useful ones
+          Array.from(clone.querySelectorAll('*')).forEach(el => {
+            const keepAttrs = ['id', 'class', 'name', 'type', 'href', 'placeholder', 'aria-label', 'role', 'data-testid', 'value'];
+            const attrs = Array.from(el.attributes);
+            attrs.forEach(attr => {
+              if (!keepAttrs.includes(attr.name) && !attr.name.startsWith('data-')) {
+                el.removeAttribute(attr.name);
+              }
+            });
+
+            // Trim text content
+            if (el.childNodes.length === 1 && el.childNodes[0].nodeType === 3) {
+              el.textContent = el.textContent.trim().substring(0, 100);
+            }
+          });
+
+          return clone.innerHTML.substring(0, 50000); // Limit to 50KB
         };
 
         return {
@@ -166,6 +199,7 @@ class IntelligentPageAnalyzer {
           textareas: getElementInfo('textarea'),
           navElements: getElementInfo('nav, [role="navigation"]'),
           mainContent: document.querySelector('main, [role="main"], article')?.textContent?.trim().substring(0, 500) || '',
+          simplifiedHTML: getSimplifiedHTML(),
           hasModals: document.querySelectorAll('[class*="modal"], [class*="dialog"], [class*="popup"]').length > 0,
           hasCookieBanner: document.querySelectorAll('[class*="cookie"], [class*="consent"]').length > 0,
           hasLoginForm: document.querySelectorAll('input[type="password"]').length > 0,
@@ -228,6 +262,7 @@ class IntelligentPageAnalyzer {
       linksCount: pageContext.links.length,
       clickableElementsCount: pageContext.clickableElements?.length || 0,
       clickableElements: JSON.stringify(pageContext.clickableElements || [], null, 2),
+      simplifiedHTML: pageContext.simplifiedHTML || '',
       hasLoginForm: pageContext.hasLoginForm,
       hasSearchForm: pageContext.hasSearchForm,
       hasMultiStepForm: pageContext.hasMultiStepForm,
