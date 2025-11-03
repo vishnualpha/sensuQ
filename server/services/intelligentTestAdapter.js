@@ -1,6 +1,7 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { decrypt } = require('../utils/encryption');
+const { extractJSON } = require('../utils/jsonExtractor');
 
 /**
  * Intelligent Test Adapter - Uses LLM to analyze test failures and suggest fixes
@@ -94,7 +95,7 @@ class IntelligentTestAdapter {
         return null;
       }
 
-      const analysis = JSON.parse(jsonMatch[0]);
+      const analysis = extractJSON(responseText);
       logger.info(`✅ LLM suggested fix: ${analysis.suggestedAction}`);
 
       return analysis;
@@ -369,7 +370,7 @@ Respond with JSON:
         return { achieved: false, confidence: 'unknown' };
       }
 
-      const verification = JSON.parse(jsonMatch[0]);
+      const verification = extractJSON(responseText);
       logger.info(`${verification.achieved ? '✅' : '❌'} Intent verification: ${verification.evidence}`);
 
       return verification;

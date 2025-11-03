@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const promptLoader = require('../utils/promptLoader');
+const { extractJSON } = require('../utils/jsonExtractor');
 
 class IntelligentPageAnalyzer {
   constructor(testGenerator, config) {
@@ -322,7 +323,7 @@ class IntelligentPageAnalyzer {
 
     try {
       const response = await this.testGenerator.callLLM(prompt);
-      const analysis = JSON.parse(response);
+      const analysis = extractJSON(response);
 
       logger.info(`\n========== LLM ANALYSIS RESPONSE ==========`);
       logger.info(`Key interactions returned: ${analysis.keyInteractions?.length || 0}`);

@@ -1,6 +1,7 @@
 const logger = require('../utils/logger');
 const { AITestGenerator } = require('./aiTestGenerator');
 const { pool } = require('../config/database');
+const { extractJSON } = require('../utils/jsonExtractor');
 
 /**
  * Generate page-level tests for discovered pages
@@ -214,13 +215,7 @@ RESPOND ONLY WITH VALID JSON in this format:
     try {
       const response = await this.testGenerator.callLLM(prompt);
 
-      let cleanedResponse = response.trim();
-      // Remove markdown code blocks if present
-      if (cleanedResponse.startsWith('```')) {
-        cleanedResponse = cleanedResponse.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-      }
-
-      const llmResponse = JSON.parse(cleanedResponse);
+      const llmResponse = extractJSON(response);
 
       return llmResponse.tests.map(test => ({
         test_type: test.testType,

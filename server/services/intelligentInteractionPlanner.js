@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const promptLoader = require('../utils/promptLoader');
 const { pool } = require('../config/database');
 const { decrypt } = require('../utils/encryption');
+const { extractJSON } = require('../utils/jsonExtractor');
 
 class IntelligentInteractionPlanner {
   constructor(llmConfig) {
@@ -76,20 +77,10 @@ class IntelligentInteractionPlanner {
         }
       );
 
-      let responseText = response.data.choices[0].message.content.trim();
+      const responseText = response.data.choices[0].message.content.trim();
       logger.info('LLM response received for scenario generation');
 
-      // Remove markdown code blocks if present
-      if (responseText.startsWith('```')) {
-        responseText = responseText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-      }
-
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('No valid JSON found in LLM response');
-      }
-
-      const scenarios = JSON.parse(jsonMatch[0]);
+      const scenarios = extractJSON(responseText);
 
       logger.info(`✅ Generated ${scenarios.scenarios.length} interaction scenarios`);
 

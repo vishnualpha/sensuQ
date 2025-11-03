@@ -1,6 +1,7 @@
 const logger = require('../utils/logger');
 const { AITestGenerator } = require('./aiTestGenerator');
 const { pool } = require('../config/database');
+const { extractJSON } = require('../utils/jsonExtractor');
 const FlowPatternRecognizer = require('./flowPatternRecognizer');
 const JourneyMapper = require('./journeyMapper');
 
@@ -216,7 +217,7 @@ RESPOND ONLY WITH VALID JSON:
 
     try {
       const response = await this.testGenerator.callLLM(prompt);
-      const llmResponse = JSON.parse(response);
+      const llmResponse = extractJSON(response);
 
       // Map LLM flows to our flow sequences
       return llmResponse.flows.map((flow, idx) => {

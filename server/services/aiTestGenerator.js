@@ -2,6 +2,7 @@ const axios = require('axios');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
 const promptLoader = require('../utils/promptLoader');
+const { extractJSON } = require('../utils/jsonExtractor');
 
 class AITestGenerator {
   constructor(config) {
@@ -182,14 +183,7 @@ class AITestGenerator {
 
   parseTestCases(response) {
     try {
-      let cleanedResponse = response.trim();
-
-      // Remove markdown code blocks if present
-      if (cleanedResponse.startsWith('```')) {
-        cleanedResponse = cleanedResponse.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-      }
-
-      const parsed = JSON.parse(cleanedResponse);
+      const parsed = extractJSON(response);
       return parsed.testCases || [];
     } catch (error) {
       logger.error(`Error parsing LLM response: ${error.message}`);

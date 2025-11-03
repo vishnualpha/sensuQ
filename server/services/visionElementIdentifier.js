@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const { AITestGenerator } = require('./aiTestGenerator');
+const { extractJSON } = require('../utils/jsonExtractor');
 
 /**
  * Vision-based interactive element identifier
@@ -34,7 +35,7 @@ class VisionElementIdentifier {
       logger.info(`Analyzing page with vision LLM: ${url}`);
 
       const response = await this.testGenerator.callLLM(prompt, screenshotBase64);
-      const analysis = JSON.parse(response);
+      const analysis = extractJSON(response);
 
       logger.info(`Vision LLM identified ${analysis.interactiveElements?.length || 0} interactive elements`);
 
