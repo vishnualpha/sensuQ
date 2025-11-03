@@ -4,7 +4,6 @@ CONTEXT:
 - URL: {url}
 - Title: {title}
 - Page Type: {pageType}
-- Business: {businessContext}
 
 INTERACTIVE ELEMENTS:
 {interactiveElements}

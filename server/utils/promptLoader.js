@@ -22,6 +22,18 @@ class PromptLoader {
     const template = this.loadPrompt(filename);
     let rendered = template;
 
+    // Handle {{#if variable}} ... {{/if}} blocks
+    const ifBlockRegex = /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
+    rendered = rendered.replace(ifBlockRegex, (match, varName, content) => {
+      const value = variables[varName];
+      // Include block if value is truthy and not empty string
+      if (value && value !== '') {
+        return content;
+      }
+      return '';
+    });
+
+    // Replace regular {{variable}} placeholders
     for (const [key, value] of Object.entries(variables)) {
       const placeholder = `{{${key}}}`;
       const stringValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);

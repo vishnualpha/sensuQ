@@ -8,21 +8,20 @@ PAGE INFO:
 
 NAVIGATION:
 {{navigationElements}}
+{{#if businessContext}}
 
 BUSINESS CONTEXT:
 {{businessContext}}
+{{/if}}
 
 YOUR TASK:
 Create 5-10 functional test cases that real users would perform.
 
 KEY RULES:
 1. Include navigation steps FIRST if content requires clicking menu/nav items
-2. Use realistic test data based on business context
+2. Generate realistic test data appropriate for the application and form fields
 3. Use specific CSS selectors from the page
 4. Include clear expected results
-
-TEST DATA EXAMPLES:
-{{testDataExamples}}
 
 EXAMPLE - Login Test:
 {

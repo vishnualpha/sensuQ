@@ -70,8 +70,7 @@ class AITestGenerator {
       selects: JSON.stringify(pageData.elements?.selects || [], null, 2),
       navigationElements: navigationInfo.formatted,
       pageStructure: navigationInfo.structure,
-      businessContext: this.config.business_context || '',
-      testDataExamples: ''
+      businessContext: this.config.business_context || ''
     });
   }
 

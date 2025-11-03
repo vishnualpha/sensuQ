@@ -1,6 +1,8 @@
 You are analyzing a web page to decide what to test and where to navigate next.
+{{#if businessContext}}
 
 BUSINESS CONTEXT: {{businessContext}}
+{{/if}}
 
 PAGE INFO:
 - URL: {{url}}
