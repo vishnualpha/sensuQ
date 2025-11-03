@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { configAPI, crawlerAPI } from '../services/api';
-import { Plus, CreditCard as Edit, Trash2, Globe, Settings, X, Play, Loader } from 'lucide-react';
+import { Plus, Pencil as Edit, Trash2, Globe, Settings, X, Play, Loader } from 'lucide-react';
 
 interface TestConfig {
   id: number;

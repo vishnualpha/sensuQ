@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { configAPI } from '../services/api';
-import { Plus, CreditCard as Edit, Trash2, Brain, Key, Settings } from 'lucide-react';
+import { Plus, Pencil as Edit, Trash2, Brain, Key, Settings } from 'lucide-react';
 
 interface LLMConfig {
   id: number;
