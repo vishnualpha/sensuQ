@@ -1241,24 +1241,21 @@ class AutonomousCrawler {
     const interactiveElements = analysis.interactiveElements || [];
     console.log('🔍 DEBUG: Total interactive elements:', interactiveElements.length);
     console.log('🔍 DEBUG: First 3 elements:', JSON.stringify(interactiveElements.slice(0, 3).map(el => ({
-      tag: el.tag_name,
+      element_type: el.element_type,
       text: el.text_content?.substring(0, 30),
       selector: el.selector,
-      href: el.href,
-      role: el.attributes?.role
+      priority: el.interaction_priority
     })), null, 2));
 
     const navigableElements = interactiveElements.filter(el => {
-      const tag = el.tag_name?.toLowerCase();
-      const type = el.attributes?.type?.toLowerCase();
-      const role = el.attributes?.role?.toLowerCase();
+      const elementType = el.element_type?.toLowerCase();
       const text = el.text_content?.toLowerCase() || '';
 
-      if (tag === 'a' && el.href) return true;
-      if (tag === 'button' && type !== 'submit') return true;
-      if (role === 'button' || role === 'link' || role === 'tab' || role === 'menuitem') return true;
-      if (tag === 'li' && (el.selector?.includes('menu') || el.selector?.includes('nav'))) return true;
-      if ((tag === 'div' || tag === 'span') && (text.includes('login') || text.includes('sign') || text.includes('menu') || text.includes('dashboard'))) return true;
+      if (elementType === 'link') return true;
+      if (elementType === 'button') return true;
+      if (elementType === 'tab') return true;
+      if (elementType === 'menu-item') return true;
+      if (text.includes('login') || text.includes('sign in') || text.includes('sign up') || text.includes('register')) return true;
 
       return false;
     });
