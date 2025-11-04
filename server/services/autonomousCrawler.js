@@ -213,7 +213,7 @@ class AutonomousCrawler {
           maxPages: this.testConfig.max_pages,
           message: `Discovered ${this.pagesDiscovered}/${this.testConfig.max_pages} pages - Currently on: ${url}`,
           percentage: percentage,
-          canStopCrawling: this.pagesDiscovered > 0,
+          canStopCrawling: this.pagesDiscovered > 1 || depth > 0,
           currentUrl: url,
           depth: depth
         };
@@ -348,7 +348,7 @@ class AutonomousCrawler {
           maxPages: this.testConfig.max_pages,
           message: `Discovered ${this.pagesDiscovered}/${this.testConfig.max_pages} pages - Currently on: ${url}`,
           percentage: percentage,
-          canStopCrawling: this.pagesDiscovered > 0,
+          canStopCrawling: this.pagesDiscovered > 1 || depth > 0,
           currentUrl: url,
           depth: depth
         };
