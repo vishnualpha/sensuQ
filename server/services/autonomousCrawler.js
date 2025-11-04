@@ -1238,38 +1238,41 @@ class AutonomousCrawler {
       return;
     }
 
-    const linksToFollow = analysis.linksToFollow || [];
-    logger.info(`  🔗 Discovering URLs from ${linksToFollow.length} links`);
+    const interactiveElements = analysis.interactiveElements || [];
 
-    for (const link of linksToFollow) {
+    const navigableElements = interactiveElements.filter(el => {
+      const tag = el.tag_name?.toLowerCase();
+      const type = el.attributes?.type?.toLowerCase();
+      const role = el.attributes?.role?.toLowerCase();
+      const text = el.text_content?.toLowerCase() || '';
+
+      if (tag === 'a' && el.href) return true;
+      if (tag === 'button' && type !== 'submit') return true;
+      if (role === 'button' || role === 'link' || role === 'tab' || role === 'menuitem') return true;
+      if (tag === 'li' && (el.selector?.includes('menu') || el.selector?.includes('nav'))) return true;
+      if ((tag === 'div' || tag === 'span') && (text.includes('login') || text.includes('sign') || text.includes('menu') || text.includes('dashboard'))) return true;
+
+      return false;
+    });
+
+    logger.info(`  🔗 Discovering URLs from ${navigableElements.length} navigable elements (out of ${interactiveElements.length} total)`);
+
+    for (const element of navigableElements) {
       if (this.pagesDiscovered >= this.testConfig.max_pages) {
         logger.info(`  ⏹️ Max pages reached, stopping link discovery`);
         break;
       }
 
       try {
-        let selector = link.selector;
-
-        if (!selector && link.elementId) {
-          const linkElement = analysis.interactiveElements.find(el =>
-            el.id === link.elementId
-          );
-          selector = linkElement ? linkElement.selector : null;
-        }
-
-        if (!selector && link.text) {
-          const linkElement = analysis.interactiveElements.find(el =>
-            el.text_content && el.text_content.includes(link.text)
-          );
-          selector = linkElement ? linkElement.selector : null;
-        }
+        const selector = element.selector;
+        const text = element.text_content || element.attributes?.['aria-label'] || 'unnamed';
 
         if (!selector) {
-          logger.warn(`  ⚠️ Could not find selector for element: ${link.text}`);
+          logger.warn(`  ⚠️ Element has no selector: ${text}`);
           continue;
         }
 
-        logger.info(`  👆 Clicking: ${link.text} (${selector})`);
+        logger.info(`  👆 Clicking: ${text.substring(0, 50)} (${selector})`);
 
         const startUrl = page.url();
 
@@ -1282,13 +1285,12 @@ class AutonomousCrawler {
         if (endUrl !== startUrl && !this.visitedUrls.has(endUrl)) {
           logger.info(`    ✅ Discovered new URL: ${endUrl}`);
 
-          const clickStep = PathNavigator.createClickStep(selector, link.text);
+          const clickStep = PathNavigator.createClickStep(selector, text);
           const newSteps = PathNavigator.buildStepSequence(parentSteps, clickStep);
 
-          const priority = link.priority || 'medium';
-          await this.enqueueUrl(endUrl, depth + 1, pageId, null, priority, newSteps);
+          await this.enqueueUrl(endUrl, depth + 1, pageId, null, 'medium', newSteps);
         } else if (endUrl === startUrl) {
-          logger.info(`    ℹ️ Link stayed on same page (in-page action)`);
+          logger.info(`    ℹ️ Element stayed on same page (in-page action)`);
         } else {
           logger.info(`    ⏭️ Already visited: ${endUrl}`);
         }
@@ -1303,7 +1305,7 @@ class AutonomousCrawler {
         }
 
       } catch (error) {
-        logger.warn(`    ⚠️ Failed to click "${link.text}": ${error.message}`);
+        logger.warn(`    ⚠️ Failed to click "${text.substring(0, 30)}": ${error.message}`);
 
         try {
           await page.goto(currentUrl, { waitUntil: 'networkidle', timeout: 10000 });
