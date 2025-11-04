@@ -346,6 +346,12 @@ class IntelligentPageAnalyzer {
     const interactiveElementsSummary = pageContext.elementsFormatted ||
       JSON.stringify(pageContext.clickableElements || [], null, 2);
 
+    const availableLinks = pageContext.links && pageContext.links.length > 0
+      ? pageContext.links.map((link, idx) =>
+          `[${idx + 1}] "${link.text}" -> ${link.attributes?.href || 'no href'}`
+        ).join('\n')
+      : 'No links found on this page';
+
     const prompt = promptLoader.renderPrompt('page-analysis.txt', {
       businessContext: this.config.business_context || '',
       url: url,
@@ -358,6 +364,7 @@ class IntelligentPageAnalyzer {
       linksCount: pageContext.links?.length || 0,
       clickableElementsCount: pageContext.clickableElements?.length || 0,
       interactiveElements: interactiveElementsSummary,
+      availableLinks: availableLinks,
       hasLoginForm: pageContext.hasLoginForm,
       hasSearchForm: pageContext.hasSearchForm,
       hasMultiStepForm: pageContext.hasMultiStepForm,

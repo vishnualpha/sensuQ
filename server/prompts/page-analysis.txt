@@ -15,6 +15,9 @@ Each element has a unique ID [el_XXX] and selector. Reference these in your resp
 
 {{interactiveElements}}
 
+AVAILABLE LINKS FOR NAVIGATION:
+{{availableLinks}}
+
 YOUR TASK:
 1. Identify 3-5 key interactions that reveal new content or navigate to new pages
 2. Use element IDs [el_XXX] or selectors from INTERACTIVE ELEMENTS above
