@@ -404,13 +404,18 @@ class AutonomousCrawler {
 
       await this.updateRunningStats();
 
-      for (const scenario of scenarios) {
-        if (depth >= this.testConfig.max_depth || this.pagesDiscovered >= this.testConfig.max_pages) {
-          break;
-        }
+      logger.info(`  ✅ Generated ${scenarios.length} scenarios for flow-level tests (will be processed after crawl)`)
 
-        logger.info(`🎬 Enqueuing scenario: "${scenario.name}"`);
-        await this.enqueueScenario(scenario, pageId, depth, parentSteps);
+      const links = analysis.interactiveElements.filter(el => el.element_type === 'link' && el.href);
+      logger.info(`  🔗 Found ${links.length} links to enqueue`);
+
+      for (const link of links) {
+        if (depth + 1 <= this.testConfig.max_depth && this.pagesDiscovered < this.testConfig.max_pages) {
+          const clickStep = PathNavigator.createClickStep(link.selector, link.text_content);
+          const newSteps = PathNavigator.buildStepSequence(parentSteps, clickStep);
+
+          await this.enqueueUrl(link.href, depth + 1, pageId, null, 'medium', newSteps);
+        }
       }
 
     } catch (error) {
@@ -1238,34 +1243,38 @@ class AutonomousCrawler {
   }
 
   async enqueueScenario(scenario, currentPageId, currentDepth, parentSteps) {
-    const scenarioResult = await pool.query(
-      'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
-      [currentPageId, scenario.name]
-    );
-    const scenarioId = scenarioResult.rows.length > 0 ? scenarioResult.rows[0].id : null;
+    if (currentDepth + 1 > this.testConfig.max_depth) {
+      logger.info(`  ⏭️ Skipping scenario "${scenario.name}" - max depth reached`);
+      return;
+    }
 
-    if (scenarioId) {
-      const urlResult = await pool.query(
-        'SELECT expected_end_url FROM interaction_scenarios WHERE id = $1',
-        [scenarioId]
-      );
+    const scenarioSteps = scenario.steps.map(step => ({
+      action: step.action,
+      selector: step.selector,
+      value: step.inputValue || null,
+      elementText: step.textContent || ''
+    }));
 
-      if (urlResult.rows.length > 0 && urlResult.rows[0].expected_end_url) {
-        const endUrl = urlResult.rows[0].expected_end_url;
+    for (const step of scenario.steps) {
+      if (step.action === 'click' && step.expectedOutcome &&
+          (step.expectedOutcome.toLowerCase().includes('navigate') ||
+           step.expectedOutcome.toLowerCase().includes('redirect') ||
+           step.expectedOutcome.toLowerCase().includes('page'))) {
 
-        const scenarioSteps = scenario.steps.map(step => ({
-          action: step.action,
-          selector: step.selector,
-          value: step.inputValue || null,
-          elementText: step.textContent || ''
-        }));
+        const clickSteps = scenarioSteps.slice(0, scenario.steps.indexOf(step) + 1);
+        const newSteps = PathNavigator.buildStepSequence(parentSteps, ...clickSteps);
 
-        const newSteps = PathNavigator.buildStepSequence(parentSteps, ...scenarioSteps);
+        const placeholderUrl = `${parentSteps[0].url}#scenario-${scenario.name.replace(/\s+/g, '-')}`;
 
-        if (currentDepth + 1 <= this.testConfig.max_depth) {
-          await this.enqueueUrl(endUrl, currentDepth + 1, currentPageId, scenarioId, scenario.priority, newSteps);
-          logger.info(`  📥 Enqueued scenario result page with ${newSteps.length} total steps`);
-        }
+        const scenarioResult = await pool.query(
+          'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
+          [currentPageId, scenario.name]
+        );
+        const scenarioId = scenarioResult.rows.length > 0 ? scenarioResult.rows[0].id : null;
+
+        await this.enqueueUrl(placeholderUrl, currentDepth + 1, currentPageId, scenarioId, scenario.priority, newSteps);
+        logger.info(`  📥 Enqueued scenario "${scenario.name}" with ${newSteps.length} total steps`);
+        break;
       }
     }
   }
