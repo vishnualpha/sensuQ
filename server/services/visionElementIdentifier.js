@@ -158,53 +158,113 @@ CRITICAL:
   }
 
   /**
-   * Build CSS selector from element attributes
+   * Build robust CSS selector from element attributes
+   * Combines multiple attributes for uniqueness when necessary
    */
   buildSelector(element) {
     const attrs = element.attributes || {};
+    const selectorParts = [];
 
-    // Prefer ID selector
+    // Always start with element type for specificity
+    selectorParts.push(element.elementType);
+
+    // ID is most unique - if present, use it alone
     if (attrs.id) {
       return `#${attrs.id}`;
     }
 
-    // Try data attributes
-    const dataAttr = Object.keys(attrs).find(key => key.startsWith('data-'));
-    if (dataAttr) {
-      return `[${dataAttr}="${attrs[dataAttr]}"]`;
+    // Build composite selector with multiple attributes
+    const attributeSelectors = [];
+
+    // Add data attributes (very stable)
+    Object.keys(attrs).forEach(key => {
+      if (key.startsWith('data-') && attrs[key]) {
+        attributeSelectors.push(`[${key}="${this.escapeAttributeValue(attrs[key])}"]`);
+      }
+    });
+
+    // Add name attribute for inputs/forms
+    if (attrs.name && (element.elementType === 'input' || element.elementType === 'select' || element.elementType === 'textarea')) {
+      attributeSelectors.push(`[name="${this.escapeAttributeValue(attrs.name)}"]`);
     }
 
-    // Try name attribute for inputs
-    if (attrs.name && (element.elementType === 'input' || element.elementType === 'select')) {
-      return `${element.elementType}[name="${attrs.name}"]`;
+    // Add type attribute for inputs/buttons
+    if (attrs.type) {
+      attributeSelectors.push(`[type="${this.escapeAttributeValue(attrs.type)}"]`);
     }
 
-    // Try aria-label
+    // Add aria-label (accessibility attribute, usually stable)
     if (attrs['aria-label']) {
-      return `[aria-label="${attrs['aria-label']}"]`;
+      attributeSelectors.push(`[aria-label="${this.escapeAttributeValue(attrs['aria-label'])}"]`);
     }
 
-    // Try type attribute for inputs
-    if (attrs.type && element.elementType === 'input') {
-      return `input[type="${attrs.type}"]`;
+    // Add role attribute
+    if (attrs.role) {
+      attributeSelectors.push(`[role="${this.escapeAttributeValue(attrs.role)}"]`);
     }
 
-    // Use class selector as last resort
-    if (attrs.class) {
-      const classes = attrs.class.split(' ').filter(c => c.length > 0);
-      if (classes.length > 0) {
-        return `.${classes[0]}`;
+    // Add href for links (partial match for dynamic params)
+    if (attrs.href && element.elementType === 'a') {
+      const href = attrs.href.split('?')[0]; // Remove query params
+      if (href && href !== '#') {
+        attributeSelectors.push(`[href*="${this.escapeAttributeValue(href)}"]`);
       }
     }
 
-    // Fall back to element type with text
-    if (element.textContent) {
-      const text = element.textContent.replace(/'/g, "\\'").substring(0, 30);
-      return `${element.elementType}:has-text("${text}")`;
+    // Add stable class names (avoid dynamic ones like 'active', 'selected')
+    if (attrs.class) {
+      const classes = attrs.class.split(' ')
+        .filter(c => c.length > 0)
+        .filter(c => !this.isDynamicClass(c));
+
+      if (classes.length > 0) {
+        // Use up to 2 most stable classes
+        classes.slice(0, 2).forEach(cls => {
+          selectorParts.push(`.${cls}`);
+        });
+      }
     }
 
-    // Last resort: just the element type
+    // Combine element type with attribute selectors
+    const selector = selectorParts.join('') + attributeSelectors.join('');
+
+    // If we have a good selector, return it
+    if (attributeSelectors.length > 0 || selectorParts.length > 1) {
+      return selector;
+    }
+
+    // Fall back to text content if no attributes
+    if (element.textContent && element.textContent.trim().length > 0) {
+      const text = element.textContent.trim().substring(0, 30);
+      const escapedText = this.escapeAttributeValue(text);
+      return `${element.elementType}:has-text("${escapedText}")`;
+    }
+
+    // Last resort: just the element type (least specific)
+    logger.warn(`Warning: Generated non-unique selector for element: ${element.elementType}`);
     return element.elementType;
+  }
+
+  /**
+   * Escape attribute values for CSS selectors
+   */
+  escapeAttributeValue(value) {
+    if (!value) return '';
+    return value.replace(/"/g, '\\"').replace(/'/g, "\\'");
+  }
+
+  /**
+   * Check if a class name is likely dynamic/temporary
+   */
+  isDynamicClass(className) {
+    const dynamicPatterns = [
+      'active', 'selected', 'current', 'hover', 'focus',
+      'visible', 'hidden', 'open', 'closed', 'expanded',
+      'collapsed', 'disabled', 'loading', 'error'
+    ];
+
+    const lowerClass = className.toLowerCase();
+    return dynamicPatterns.some(pattern => lowerClass.includes(pattern));
   }
 
   /**

@@ -1291,7 +1291,12 @@ class AutonomousCrawler {
 
         const startUrl = page.url();
 
-        await page.click(selector, { timeout: 5000 });
+        const clicked = await this.clickElementWithHealing(page, selector, text, element);
+        if (!clicked) {
+          logger.warn(`    ❌ Could not click element even with self-healing, skipping`);
+          continue;
+        }
+
         await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
         await page.waitForTimeout(1000);
 
@@ -1689,6 +1694,76 @@ class AutonomousCrawler {
     } catch (error) {
       logger.error(`Cleanup error: ${error.message}`);
     }
+  }
+
+  /**
+   * Click element with self-healing fallback
+   * Tries original selector, then attempts to find element by text/attributes
+   */
+  async clickElementWithHealing(page, selector, text, element) {
+    try {
+      await page.click(selector, { timeout: 5000 });
+      logger.info(`    ✅ Clicked using original selector`);
+      return true;
+    } catch (error) {
+      logger.warn(`    🔧 Original selector failed, attempting self-healing...`);
+
+      try {
+        const healedSelector = await this.findAlternativeSelector(page, text, element);
+        if (healedSelector) {
+          await page.click(healedSelector, { timeout: 5000 });
+          logger.info(`    ✅ Self-healed! Clicked using: ${healedSelector}`);
+
+          element.selector = healedSelector;
+          element.selfHealed = true;
+
+          return true;
+        }
+      } catch (healError) {
+        logger.warn(`    ❌ Self-healing failed: ${healError.message}`);
+      }
+
+      return false;
+    }
+  }
+
+  /**
+   * Find alternative selector for an element
+   * Uses text content and attributes to locate the element
+   */
+  async findAlternativeSelector(page, text, element) {
+    const attrs = element.attributes || {};
+
+    const strategies = [
+      () => text ? `text="${text.trim()}"` : null,
+      () => attrs['aria-label'] ? `[aria-label="${attrs['aria-label']}"]` : null,
+      () => attrs['data-testid'] ? `[data-testid="${attrs['data-testid']}"]` : null,
+      () => attrs.name ? `[name="${attrs.name}"]` : null,
+      () => attrs.role && text ? `[role="${attrs.role}"] >> text="${text.trim()}"` : null,
+      () => attrs.type && text ? `${element.element_type}[type="${attrs.type}"] >> text="${text.trim()}"` : null,
+      () => text && text.trim().length > 3 ? `${element.element_type}:has-text("${text.trim().substring(0, 30)}")` : null,
+    ];
+
+    for (const strategy of strategies) {
+      const candidateSelector = strategy();
+      if (!candidateSelector) continue;
+
+      try {
+        const count = await page.locator(candidateSelector).count();
+        if (count === 1) {
+          const isVisible = await page.locator(candidateSelector).isVisible();
+          if (isVisible) {
+            logger.info(`    💡 Found alternative: ${candidateSelector}`);
+            return candidateSelector;
+          }
+        } else if (count > 1) {
+          logger.warn(`    ⚠️ Multiple matches for: ${candidateSelector}`);
+        }
+      } catch (e) {
+      }
+    }
+
+    return null;
   }
 }
 
