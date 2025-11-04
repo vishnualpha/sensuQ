@@ -60,7 +60,6 @@ class AutonomousCrawler {
       logger.info(`🔄 Using BREADTH-FIRST crawling strategy`);
 
       this.shouldStop = false;
-      await this.initializeBrowser();
 
       const baseStep = PathNavigator.createGotoStep(this.testConfig.target_url);
       await this.enqueueUrl(this.testConfig.target_url, 0, null, null, 'high', [baseStep]);
@@ -891,7 +890,7 @@ class AutonomousCrawler {
 
       try {
         const results = await this.processItemsInParallel(queueItems.rows, currentDepth);
-        processedCount += results.filter(r => r.success).length;
+        processedCount += results.filter(r => r && r.success).length;
       } finally {
         await this.browserPool.closeAll();
         this.browserPool = null;
@@ -1011,6 +1010,8 @@ class AutonomousCrawler {
          WHERE id = $1`,
         [item.id, error.message]
       );
+
+      return { success: false, error: error.message };
     }
   }
 
@@ -1607,6 +1608,10 @@ class AutonomousCrawler {
 
   async cleanup() {
     try {
+      if (this.browserPool) {
+        await this.browserPool.closeAll();
+        this.browserPool = null;
+      }
       if (this.page) await this.page.close();
       if (this.context) await this.context.close();
       if (this.browser) await this.browser.close();
