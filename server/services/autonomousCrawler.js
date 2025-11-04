@@ -406,24 +406,7 @@ class AutonomousCrawler {
 
       logger.info(`  ✅ Generated ${scenarios.length} scenarios for flow-level tests (will be processed after crawl)`)
 
-      const linksToFollow = analysis.linksToFollow || [];
-      logger.info(`  🔗 Found ${linksToFollow.length} links to enqueue`);
-
-      for (const link of linksToFollow) {
-        if (depth + 1 <= this.testConfig.max_depth && this.pagesDiscovered < this.testConfig.max_pages) {
-          const linkElement = analysis.interactiveElements.find(el =>
-            el.href === link.url || (el.text_content && el.text_content.includes(link.text))
-          );
-
-          const selector = linkElement ? linkElement.selector : `a[href="${link.url}"]`;
-          const clickStep = PathNavigator.createClickStep(selector, link.text);
-          const newSteps = PathNavigator.buildStepSequence(parentSteps, clickStep);
-
-          const priority = link.priority || 'medium';
-          await this.enqueueUrl(link.url, depth + 1, pageId, null, priority, newSteps);
-          logger.info(`    📥 Enqueued: ${link.text} → ${link.url}`);
-        }
-      }
+      await this.discoverAndEnqueueLinks(browser.page, pageId, url, analysis, depth, parentSteps);
 
     } catch (error) {
       logger.error(`Error crawling page ${url}: ${error.message}`);
@@ -1249,41 +1232,75 @@ class AutonomousCrawler {
     logger.info(`  ✅ Added prerequisite and cleanup steps to test cases`);
   }
 
-  async enqueueScenario(scenario, currentPageId, currentDepth, parentSteps) {
-    if (currentDepth + 1 > this.testConfig.max_depth) {
-      logger.info(`  ⏭️ Skipping scenario "${scenario.name}" - max depth reached`);
+  async discoverAndEnqueueLinks(page, pageId, currentUrl, analysis, depth, parentSteps) {
+    if (depth + 1 > this.testConfig.max_depth) {
+      logger.info(`  ⏭️ Skipping link discovery - max depth reached`);
       return;
     }
 
-    const scenarioSteps = scenario.steps.map(step => ({
-      action: step.action,
-      selector: step.selector,
-      value: step.inputValue || null,
-      elementText: step.textContent || ''
-    }));
+    const linksToFollow = analysis.linksToFollow || [];
+    logger.info(`  🔗 Discovering URLs from ${linksToFollow.length} links`);
 
-    for (const step of scenario.steps) {
-      if (step.action === 'click' && step.expectedOutcome &&
-          (step.expectedOutcome.toLowerCase().includes('navigate') ||
-           step.expectedOutcome.toLowerCase().includes('redirect') ||
-           step.expectedOutcome.toLowerCase().includes('page'))) {
-
-        const clickSteps = scenarioSteps.slice(0, scenario.steps.indexOf(step) + 1);
-        const newSteps = PathNavigator.buildStepSequence(parentSteps, ...clickSteps);
-
-        const placeholderUrl = `${parentSteps[0].url}#scenario-${scenario.name.replace(/\s+/g, '-')}`;
-
-        const scenarioResult = await pool.query(
-          'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
-          [currentPageId, scenario.name]
-        );
-        const scenarioId = scenarioResult.rows.length > 0 ? scenarioResult.rows[0].id : null;
-
-        await this.enqueueUrl(placeholderUrl, currentDepth + 1, currentPageId, scenarioId, scenario.priority, newSteps);
-        logger.info(`  📥 Enqueued scenario "${scenario.name}" with ${newSteps.length} total steps`);
+    for (const link of linksToFollow) {
+      if (this.pagesDiscovered >= this.testConfig.max_pages) {
+        logger.info(`  ⏹️ Max pages reached, stopping link discovery`);
         break;
       }
+
+      try {
+        const linkElement = analysis.interactiveElements.find(el =>
+          el.href === link.url || (el.text_content && el.text_content.includes(link.text))
+        );
+
+        const selector = linkElement ? linkElement.selector : `a[href="${link.url}"]`;
+
+        logger.info(`  👆 Clicking: ${link.text} (${selector})`);
+
+        const startUrl = page.url();
+
+        await page.click(selector, { timeout: 5000 });
+        await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+        await page.waitForTimeout(1000);
+
+        const endUrl = page.url();
+
+        if (endUrl !== startUrl && !this.visitedUrls.has(endUrl)) {
+          logger.info(`    ✅ Discovered new URL: ${endUrl}`);
+
+          const clickStep = PathNavigator.createClickStep(selector, link.text);
+          const newSteps = PathNavigator.buildStepSequence(parentSteps, clickStep);
+
+          const priority = link.priority || 'medium';
+          await this.enqueueUrl(endUrl, depth + 1, pageId, null, priority, newSteps);
+        } else if (endUrl === startUrl) {
+          logger.info(`    ℹ️ Link stayed on same page (in-page action)`);
+        } else {
+          logger.info(`    ⏭️ Already visited: ${endUrl}`);
+        }
+
+        if (endUrl !== startUrl) {
+          logger.info(`    ⬅️ Navigating back to: ${currentUrl}`);
+          await page.goBack({ waitUntil: 'networkidle', timeout: 10000 }).catch(async () => {
+            logger.warn(`    ⚠️ goBack failed, navigating directly`);
+            await page.goto(currentUrl, { waitUntil: 'networkidle', timeout: 10000 });
+          });
+          await page.waitForTimeout(1000);
+        }
+
+      } catch (error) {
+        logger.warn(`    ⚠️ Failed to click "${link.text}": ${error.message}`);
+
+        try {
+          await page.goto(currentUrl, { waitUntil: 'networkidle', timeout: 10000 });
+          await page.waitForTimeout(1000);
+        } catch (navError) {
+          logger.error(`    ❌ Failed to return to ${currentUrl}: ${navError.message}`);
+          break;
+        }
+      }
     }
+
+    logger.info(`  ✅ Link discovery complete`);
   }
 
   /**
