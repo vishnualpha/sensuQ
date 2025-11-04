@@ -1261,6 +1261,11 @@ class AutonomousCrawler {
     });
 
     logger.info(`  🔗 Discovering URLs from ${navigableElements.length} navigable elements (out of ${interactiveElements.length} total)`);
+    console.log('🔍 DEBUG: Navigable elements:', JSON.stringify(navigableElements.map(el => ({
+      element_type: el.element_type,
+      text: el.text_content?.substring(0, 20),
+      selector: el.selector
+    })), null, 2));
 
     for (const element of navigableElements) {
       if (this.pagesDiscovered >= this.testConfig.max_pages) {
