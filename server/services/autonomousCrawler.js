@@ -406,7 +406,12 @@ class AutonomousCrawler {
 
       logger.info(`  ✅ Generated ${scenarios.length} scenarios for flow-level tests (will be processed after crawl)`)
 
-      await this.discoverAndEnqueueLinks(browser.page, pageId, url, analysis, depth, parentSteps);
+      try {
+        await this.discoverAndEnqueueLinks(browser.page, pageId, url, analysis, depth, parentSteps);
+      } catch (linkDiscoveryError) {
+        logger.error(`Link discovery failed for ${url}: ${linkDiscoveryError.message}`);
+        logger.warn(`Continuing with crawl despite link discovery failure`);
+      }
 
     } catch (error) {
       logger.error(`Error crawling page ${url}: ${error.message}`);
@@ -1273,10 +1278,10 @@ class AutonomousCrawler {
         break;
       }
 
-      try {
-        const selector = element.selector;
-        const text = element.text_content || element.attributes?.['aria-label'] || 'unnamed';
+      const selector = element.selector;
+      const text = element.text_content || element.attributes?.['aria-label'] || 'unnamed';
 
+      try {
         if (!selector) {
           logger.warn(`  ⚠️ Element has no selector: ${text}`);
           continue;
