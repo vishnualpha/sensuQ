@@ -22,11 +22,13 @@ YOUR TASK:
 1. Identify 3-5 key interactions that reveal new content or navigate to new pages
 2. Use element IDs [el_XXX] or selectors from INTERACTIVE ELEMENTS above
 3. Focus on navigation, forms, buttons, and business-critical features
+4. **CRITICAL**: Identify ALL clickable elements that could navigate to new pages (links, buttons, menu items, tabs, etc.)
 
 IMPORTANT:
 - Reference elements by their ID (e.g., [el_1]) or provided selector
 - Modern apps use div/span as buttons - they are identified above
 - Consider element context (labels, placeholders) for better understanding
+- Look at ALL interactive elements, not just <a> tags - buttons, menu items, tabs can all navigate to new pages
 
 Return JSON:
 {
@@ -46,9 +48,10 @@ Return JSON:
   ],
   "linksToFollow": [
     {
-      "text": "link text",
-      "url": "full URL from AVAILABLE LINKS",
-      "reason": "why valuable",
+      "text": "element text from INTERACTIVE ELEMENTS list",
+      "selector": "CSS selector from INTERACTIVE ELEMENTS list",
+      "elementId": "element ID like [el_1] from list",
+      "reason": "why valuable for discovering new pages",
       "priority": "high|medium|low",
       "estimatedPageType": "guess page type"
     }

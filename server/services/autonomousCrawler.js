@@ -1248,11 +1248,26 @@ class AutonomousCrawler {
       }
 
       try {
-        const linkElement = analysis.interactiveElements.find(el =>
-          el.href === link.url || (el.text_content && el.text_content.includes(link.text))
-        );
+        let selector = link.selector;
 
-        const selector = linkElement ? linkElement.selector : `a[href="${link.url}"]`;
+        if (!selector && link.elementId) {
+          const linkElement = analysis.interactiveElements.find(el =>
+            el.id === link.elementId
+          );
+          selector = linkElement ? linkElement.selector : null;
+        }
+
+        if (!selector && link.text) {
+          const linkElement = analysis.interactiveElements.find(el =>
+            el.text_content && el.text_content.includes(link.text)
+          );
+          selector = linkElement ? linkElement.selector : null;
+        }
+
+        if (!selector) {
+          logger.warn(`  ⚠️ Could not find selector for element: ${link.text}`);
+          continue;
+        }
 
         logger.info(`  👆 Clicking: ${link.text} (${selector})`);
 

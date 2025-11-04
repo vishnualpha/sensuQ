@@ -392,17 +392,13 @@ class IntelligentPageAnalyzer {
       }
 
       if (analysis.linksToFollow && analysis.linksToFollow.length > 0) {
-        analysis.linksToFollow = analysis.linksToFollow.map(link => {
-          if (!link.url || link.url === '') {
-            const matchingLink = pageContext.links.find(l =>
-              l.text && link.text && l.text.toLowerCase().includes(link.text.toLowerCase())
-            );
-            if (matchingLink) {
-              link.url = matchingLink.attributes?.href || '';
-            }
+        analysis.linksToFollow = analysis.linksToFollow.filter(link => {
+          if (!link.selector && !link.elementId) {
+            logger.warn(`⚠️ Link "${link.text}" has no selector or elementId, skipping`);
+            return false;
           }
-          return link;
-        }).filter(link => link.url && link.url !== '');
+          return true;
+        });
       }
 
       return analysis;
