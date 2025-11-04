@@ -6,6 +6,8 @@ const { FlowLevelTestGenerator } = require('./flowLevelTestGenerator');
 const IntelligentInteractionPlanner = require('./intelligentInteractionPlanner');
 const IntelligentTestAdapter = require('./intelligentTestAdapter');
 const SPAStateDetector = require('./spaStateDetector');
+const BrowserPoolManager = require('./browserPoolManager');
+const PathNavigator = require('./pathNavigator');
 const { pool } = require('../config/database');
 const { generatePageName } = require('../utils/pageNameGenerator');
 
@@ -32,6 +34,7 @@ class AutonomousCrawler {
     this.browser = null;
     this.context = null;
     this.page = null;
+    this.browserPool = null;
 
     this.visitedUrls = new Set();
     this.crawlPaths = [];
@@ -41,6 +44,9 @@ class AutonomousCrawler {
     this.pagesDiscovered = 0;
     this.pathSequence = 0;
     this.virtualPageCounter = 0;
+
+    const maxConcurrentBrowsers = this.testConfig.max_concurrent_browsers || 3;
+    this.maxParallelCrawls = Math.min(maxConcurrentBrowsers, 5);
   }
 
   /**
@@ -56,7 +62,8 @@ class AutonomousCrawler {
       this.shouldStop = false;
       await this.initializeBrowser();
 
-      await this.enqueueUrl(this.testConfig.target_url, 0, null, null, 'high');
+      const baseStep = PathNavigator.createGotoStep(this.testConfig.target_url);
+      await this.enqueueUrl(this.testConfig.target_url, 0, null, null, 'high', [baseStep]);
 
       await this.processBreadthFirstQueue();
 
@@ -288,6 +295,130 @@ class AutonomousCrawler {
       if (error.message.includes('Timeout') || error.message.includes('Navigation')) {
         logger.warn(`Skipping page due to timeout/navigation error: ${url}`);
         // Don't restart browser on first page, just mark as failed and continue
+        if (depth === 0) {
+          logger.error('Cannot load base URL, stopping crawl');
+          throw error;
+        }
+      }
+    }
+  }
+
+  /**
+   * Crawl a single page using specific browser (path-based with step sequences)
+   */
+  async crawlPageWithBrowser(url, fromPageId, interactionElementId, depth, browser, parentSteps = []) {
+    if (depth > this.testConfig.max_depth) {
+      logger.info(`Max depth ${this.testConfig.max_depth} reached, stopping`);
+      return;
+    }
+
+    if (this.pagesDiscovered >= this.testConfig.max_pages) {
+      logger.info(`Max pages ${this.testConfig.max_pages} reached, stopping`);
+      return;
+    }
+
+    if (this.visitedUrls.has(url)) {
+      logger.info(`URL already visited: ${url}`);
+      return;
+    }
+
+    try {
+      const page = browser.page;
+      logger.info(`Crawling page (depth ${depth}): ${url}`);
+
+      await page.waitForTimeout(2000);
+
+      try {
+        await Promise.race([
+          this.handlePopupsAndModals(page),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Popup handling timeout')), 8000))
+        ]);
+      } catch (popupError) {
+        logger.warn(`Popup handling timed out or failed: ${popupError.message}`);
+      }
+
+      this.visitedUrls.add(url);
+      this.pagesDiscovered++;
+
+      if (this.io) {
+        const percentage = Math.min((this.pagesDiscovered / this.testConfig.max_pages) * 100, 100);
+        const progressData = {
+          testRunId: this.testRunId,
+          phase: 'crawling',
+          discoveredPagesCount: this.pagesDiscovered,
+          maxPages: this.testConfig.max_pages,
+          message: `Discovered ${this.pagesDiscovered}/${this.testConfig.max_pages} pages - Currently on: ${url}`,
+          percentage: percentage,
+          canStopCrawling: this.pagesDiscovered > 0,
+          currentUrl: url,
+          depth: depth
+        };
+        logger.info(`📡 Emitting crawlerProgress: ${JSON.stringify(progressData)}`);
+        this.io.emit('crawlerProgress', progressData);
+      }
+
+      const screenshot = await page.screenshot({ fullPage: false });
+      const screenshotBase64 = screenshot.toString('base64');
+      const pageSource = await page.content();
+      const title = await page.title();
+
+      const analysis = await this.visionIdentifier.identifyInteractiveElements(
+        screenshotBase64,
+        pageSource,
+        url
+      );
+
+      logger.info(`Identified ${analysis.interactiveElements.length} interactive elements on ${analysis.screenName}`);
+
+      const pageId = await this.saveDiscoveredPage(
+        url,
+        title,
+        analysis.screenName,
+        analysis.pageType,
+        screenshotBase64,
+        pageSource,
+        analysis.interactiveElements.length,
+        depth
+      );
+
+      await this.saveInteractiveElements(pageId, analysis.interactiveElements);
+
+      if (fromPageId) {
+        await this.saveCrawlPathWithSteps(fromPageId, pageId, interactionElementId, depth, parentSteps);
+      }
+
+      const scenarios = await this.interactionPlanner.generateScenarios(
+        pageId,
+        this.testRunId,
+        url,
+        title,
+        analysis.screenName,
+        analysis.pageType,
+        screenshotBase64,
+        pageSource,
+        analysis.interactiveElements
+      );
+
+      logger.info(`🎯 Generated ${scenarios.length} meaningful interaction scenarios`);
+
+      await this.generatePageTestsWithPrerequisites(pageId, url, analysis, analysis.interactiveElements, parentSteps);
+
+      await this.updateRunningStats();
+
+      for (const scenario of scenarios) {
+        if (depth >= this.testConfig.max_depth || this.pagesDiscovered >= this.testConfig.max_pages) {
+          break;
+        }
+
+        logger.info(`🎬 Enqueuing scenario: "${scenario.name}"`);
+        await this.enqueueScenario(scenario, pageId, depth, parentSteps);
+      }
+
+    } catch (error) {
+      logger.error(`Error crawling page ${url}: ${error.message}`);
+
+      if (error.message.includes('Timeout') || error.message.includes('Navigation')) {
+        logger.warn(`Skipping page due to timeout/navigation error: ${url}`);
         if (depth === 0) {
           logger.error('Cannot load base URL, stopping crawl');
           throw error;
@@ -692,9 +823,9 @@ class AutonomousCrawler {
   }
 
   /**
-   * Enqueue a URL for breadth-first crawling
+   * Enqueue a URL for breadth-first crawling with complete step sequence
    */
-  async enqueueUrl(url, depth, fromPageId, scenarioId, priority = 'medium') {
+  async enqueueUrl(url, depth, fromPageId, scenarioId, priority = 'medium', requiredSteps = []) {
     try {
       if (this.visitedUrls.has(url)) {
         return;
@@ -711,19 +842,19 @@ class AutonomousCrawler {
 
       await pool.query(
         `INSERT INTO page_discovery_queue
-         (test_run_id, url, depth_level, from_page_id, scenario_id, priority, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'queued')`,
-        [this.testRunId, url, depth, fromPageId, scenarioId, priority]
+         (test_run_id, url, depth_level, from_page_id, scenario_id, priority, status, required_steps)
+         VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7)`,
+        [this.testRunId, url, depth, fromPageId, scenarioId, priority, JSON.stringify(requiredSteps)]
       );
 
-      logger.info(`📥 Enqueued: ${url} (depth: ${depth}, priority: ${priority})`);
+      logger.info(`📥 Enqueued: ${url} (depth: ${depth}, steps: ${requiredSteps.length}, priority: ${priority})`);
     } catch (error) {
       logger.error(`Failed to enqueue URL ${url}: ${error.message}`);
     }
   }
 
   /**
-   * Process the queue using breadth-first strategy
+   * Process the queue using breadth-first strategy with parallel crawling
    */
   async processBreadthFirstQueue() {
     let currentDepth = 0;
@@ -755,26 +886,15 @@ class AutonomousCrawler {
 
       logger.info(`Found ${queueItems.rows.length} pages to process at depth ${currentDepth}`);
 
-      for (const item of queueItems.rows) {
-        // Check for pause
-        while (this.isPaused && !this.shouldStop) {
-          logger.info('Crawler is paused. Waiting...');
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+      this.browserPool = new BrowserPoolManager(this.maxParallelCrawls);
+      await this.browserPool.initialize();
 
-        // Check for stop
-        if (this.shouldStop) {
-          logger.info('Stop requested, exiting crawl loop');
-          break;
-        }
-
-        if (this.pagesDiscovered >= this.testConfig.max_pages) {
-          logger.info(`Reached max pages limit (${this.testConfig.max_pages})`);
-          break;
-        }
-
-        await this.processQueueItem(item);
-        processedCount++;
+      try {
+        const results = await this.processItemsInParallel(queueItems.rows, currentDepth);
+        processedCount += results.filter(r => r.success).length;
+      } finally {
+        await this.browserPool.closeAll();
+        this.browserPool = null;
       }
 
       currentDepth++;
@@ -784,9 +904,54 @@ class AutonomousCrawler {
   }
 
   /**
-   * Process a single queue item
+   * Process queue items in parallel using browser pool
    */
-  async processQueueItem(item) {
+  async processItemsInParallel(items, depth) {
+    const results = [];
+    const queue = [...items];
+
+    const workers = Array(this.maxParallelCrawls).fill(null).map(async (_, workerIndex) => {
+      logger.info(`👷 Worker ${workerIndex + 1} started`);
+
+      while (queue.length > 0 && !this.shouldStop) {
+        while (this.isPaused && !this.shouldStop) {
+          logger.info(`Worker ${workerIndex + 1} paused. Waiting...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        if (this.shouldStop || this.pagesDiscovered >= this.testConfig.max_pages) {
+          break;
+        }
+
+        const item = queue.shift();
+        if (!item) break;
+
+        const browser = await this.browserPool.acquireBrowser();
+
+        try {
+          logger.info(`👷 Worker ${workerIndex + 1} processing: ${item.url}`);
+          const result = await this.processQueueItemWithBrowser(item, browser, depth);
+          results.push(result);
+        } catch (error) {
+          logger.error(`Worker ${workerIndex + 1} error: ${error.message}`);
+          results.push({ success: false, error: error.message });
+        } finally {
+          await this.browserPool.resetBrowser(browser);
+          this.browserPool.releaseBrowser(browser);
+        }
+      }
+
+      logger.info(`👷 Worker ${workerIndex + 1} finished`);
+    });
+
+    await Promise.allSettled(workers);
+    return results;
+  }
+
+  /**
+   * Process a single queue item with a specific browser (path-based navigation)
+   */
+  async processQueueItemWithBrowser(item, browser, depth) {
     try {
       await pool.query(
         `UPDATE page_discovery_queue
@@ -795,9 +960,27 @@ class AutonomousCrawler {
         [item.id]
       );
 
-      logger.info(`\n🌐 [Depth ${item.depth_level}] Crawling: ${item.url}`);
+      logger.info(`\n🌐 [Depth ${item.depth_level}] Path-based crawling: ${item.url}`);
 
-      await this.crawlPage(item.url, item.from_page_id, null, item.depth_level);
+      const requiredSteps = item.required_steps ? JSON.parse(item.required_steps) : [];
+      logger.info(`  Required steps from base URL: ${requiredSteps.length}`);
+
+      const navigator = new PathNavigator(browser.page);
+
+      if (requiredSteps.length > 0) {
+        await navigator.executeSteps(requiredSteps);
+      } else {
+        await navigator.executeStep(PathNavigator.createGotoStep(item.url));
+      }
+
+      await this.crawlPageWithBrowser(
+        item.url,
+        item.from_page_id,
+        null,
+        item.depth_level,
+        browser,
+        requiredSteps
+      );
 
       const discoveredPage = await pool.query(
         'SELECT id FROM discovered_pages WHERE test_run_id = $1 AND url = $2',
@@ -814,6 +997,8 @@ class AutonomousCrawler {
          WHERE id = $1`,
         [item.id, discoveredPageId]
       );
+
+      return { success: true, pageId: discoveredPageId };
 
     } catch (error) {
       logger.error(`Failed to process queue item ${item.url}: ${error.message}`);
@@ -954,6 +1139,21 @@ class AutonomousCrawler {
     );
   }
 
+  async saveCrawlPathWithSteps(fromPageId, toPageId, interactionElementId, depth, completeSteps) {
+    this.pathSequence++;
+
+    await pool.query(
+      `INSERT INTO crawl_paths
+       (test_run_id, from_page_id, to_page_id, interaction_element_id, interaction_type, path_sequence, depth_level, complete_step_sequence)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (test_run_id, from_page_id, to_page_id, interaction_element_id)
+       DO UPDATE SET complete_step_sequence = $8`,
+      [this.testRunId, fromPageId, toPageId, interactionElementId, 'click', this.pathSequence, depth, JSON.stringify(completeSteps)]
+    );
+
+    logger.info(`  💾 Saved crawl path with ${completeSteps.length} steps`);
+  }
+
   /**
    * Mark page as dead-end
    */
@@ -1005,6 +1205,63 @@ class AutonomousCrawler {
       analysis,
       interactiveElements
     );
+  }
+
+  async generatePageTestsWithPrerequisites(pageId, url, analysis, interactiveElements, prerequisiteSteps) {
+    logger.info(`Generating page-level tests with prerequisites for: ${analysis.screenName}`);
+    logger.info(`  Prerequisite steps: ${prerequisiteSteps.length}`);
+
+    await this.pageTestGenerator.generateTests(
+      this.testRunId,
+      pageId,
+      url,
+      analysis,
+      interactiveElements
+    );
+
+    const cleanupSteps = [PathNavigator.createClearBrowserDataStep()];
+
+    await pool.query(
+      `UPDATE test_cases
+       SET prerequisite_steps = $1, cleanup_steps = $2
+       WHERE test_run_id = $3 AND page_id = $4`,
+      [JSON.stringify(prerequisiteSteps), JSON.stringify(cleanupSteps), this.testRunId, pageId]
+    );
+
+    logger.info(`  ✅ Added prerequisite and cleanup steps to test cases`);
+  }
+
+  async enqueueScenario(scenario, currentPageId, currentDepth, parentSteps) {
+    const scenarioResult = await pool.query(
+      'SELECT id FROM interaction_scenarios WHERE page_id = $1 AND scenario_name = $2',
+      [currentPageId, scenario.name]
+    );
+    const scenarioId = scenarioResult.rows.length > 0 ? scenarioResult.rows[0].id : null;
+
+    if (scenarioId) {
+      const urlResult = await pool.query(
+        'SELECT expected_end_url FROM interaction_scenarios WHERE id = $1',
+        [scenarioId]
+      );
+
+      if (urlResult.rows.length > 0 && urlResult.rows[0].expected_end_url) {
+        const endUrl = urlResult.rows[0].expected_end_url;
+
+        const scenarioSteps = scenario.steps.map(step => ({
+          action: step.action,
+          selector: step.selector,
+          value: step.inputValue || null,
+          elementText: step.textContent || ''
+        }));
+
+        const newSteps = PathNavigator.buildStepSequence(parentSteps, ...scenarioSteps);
+
+        if (currentDepth + 1 <= this.testConfig.max_depth) {
+          await this.enqueueUrl(endUrl, currentDepth + 1, currentPageId, scenarioId, scenario.priority, newSteps);
+          logger.info(`  📥 Enqueued scenario result page with ${newSteps.length} total steps`);
+        }
+      }
+    }
   }
 
   /**

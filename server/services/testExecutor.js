@@ -2,6 +2,7 @@ const { chromium, firefox, webkit } = require('playwright');
 const { pool } = require('../config/database');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
+const PathNavigator = require('./pathNavigator');
 
 class TestExecutor {
   constructor(testRunId, selectedTestCaseIds, executionId, io) {
@@ -259,13 +260,27 @@ class TestExecutor {
         let selfHealed = false;
 
         try {
-          await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
+          const navigator = new PathNavigator(page);
+
+          if (testCase.prerequisite_steps && testCase.prerequisite_steps.length > 0) {
+            logger.info(`  🔧 Executing ${testCase.prerequisite_steps.length} prerequisite steps...`);
+            await navigator.executeSteps(testCase.prerequisite_steps);
+
+            screenshots.push({
+              step: 'prerequisites',
+              description: `Executed ${testCase.prerequisite_steps.length} prerequisite steps`,
+              timestamp: new Date().toISOString(),
+              data: (await page.screenshot({ fullPage: false })).toString('base64')
+            });
+          } else {
+            await page.goto(pageData.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
+          }
 
           // Capture initial page screenshot
           const initialScreenshot = await page.screenshot({ fullPage: false });
           screenshots.push({
             step: 'initial',
-            description: 'Page loaded',
+            description: 'Page ready for testing',
             timestamp: new Date().toISOString(),
             data: initialScreenshot.toString('base64')
           });
@@ -357,6 +372,17 @@ class TestExecutor {
             // Self-healing also failed
             logger.error(`Self-healing failed: ${healingError.message}`);
             status = 'failed';
+          }
+        }
+
+        if (testCase.cleanup_steps && testCase.cleanup_steps.length > 0) {
+          logger.info(`  🧹 Executing ${testCase.cleanup_steps.length} cleanup steps...`);
+          try {
+            const navigator = new PathNavigator(page);
+            await navigator.executeSteps(testCase.cleanup_steps);
+            logger.info(`  ✅ Cleanup completed`);
+          } catch (cleanupError) {
+            logger.warn(`  ⚠️ Cleanup failed: ${cleanupError.message}`);
           }
         }
 
