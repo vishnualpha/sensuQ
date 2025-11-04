@@ -137,13 +137,14 @@ CRITICAL:
 
   /**
    * Enhance elements with proper CSS selectors
+   * Validates uniqueness against actual page HTML
    */
   enhanceElementsWithSelectors(elements, pageSource) {
     return elements.map(element => {
-      const selector = this.buildSelector(element);
+      const selector = this.buildUniqueSelector(element, pageSource);
 
       return {
-        element_type: element.elementType,
+        element_type: this.normalizeElementType(element.elementType),
         selector: selector,
         text_content: element.textContent || '',
         attributes: element.attributes || {},
@@ -158,8 +159,180 @@ CRITICAL:
   }
 
   /**
+   * Normalize element types to valid HTML tags
+   */
+  normalizeElementType(elementType) {
+    const typeMap = {
+      'link': 'a',
+      'textbox': 'input',
+      'text': 'input',
+      'dropdown': 'select',
+      'checkbox': 'input',
+      'radio': 'input'
+    };
+
+    const normalized = typeMap[elementType.toLowerCase()];
+    return normalized || elementType.toLowerCase();
+  }
+
+  /**
+   * Build unique CSS selector validated against page HTML
+   */
+  buildUniqueSelector(element, pageSource) {
+    const htmlElement = this.normalizeElementType(element.elementType);
+    const attrs = element.attributes || {};
+    const text = element.textContent?.trim() || '';
+
+    // Try different selector strategies in order of reliability
+    const strategies = [
+      // Strategy 1: ID (if unique)
+      () => attrs.id ? `#${attrs.id}` : null,
+
+      // Strategy 2: data attributes + element type
+      () => {
+        const dataAttrs = Object.keys(attrs)
+          .filter(key => key.startsWith('data-'))
+          .map(key => `[${key}="${this.escapeAttributeValue(attrs[key])}"]`)
+          .join('');
+        return dataAttrs ? `${htmlElement}${dataAttrs}` : null;
+      },
+
+      // Strategy 3: name attribute for form elements
+      () => {
+        if (attrs.name && ['input', 'select', 'textarea', 'button'].includes(htmlElement)) {
+          return `${htmlElement}[name="${this.escapeAttributeValue(attrs.name)}"]`;
+        }
+        return null;
+      },
+
+      // Strategy 4: href for links (exact match)
+      () => {
+        if (htmlElement === 'a' && attrs.href) {
+          const href = attrs.href.split('?')[0].split('#')[0];
+          if (href && href !== '#' && href !== '') {
+            return `a[href="${this.escapeAttributeValue(attrs.href)}"]`;
+          }
+        }
+        return null;
+      },
+
+      // Strategy 5: type + text for buttons/links
+      () => {
+        if (text && text.length >= 2 && ['button', 'a'].includes(htmlElement)) {
+          const escapedText = this.escapeAttributeValue(text);
+          return `${htmlElement}:text("${escapedText}")`;
+        }
+        return null;
+      },
+
+      // Strategy 6: aria-label
+      () => attrs['aria-label'] ? `[aria-label="${this.escapeAttributeValue(attrs['aria-label'])}"]` : null,
+
+      // Strategy 7: role + text
+      () => {
+        if (attrs.role && text && text.length >= 2) {
+          return `[role="${attrs.role}"]:text("${this.escapeAttributeValue(text)}")`;
+        }
+        return null;
+      },
+
+      // Strategy 8: class + text (for elements with stable classes)
+      () => {
+        if (attrs.class && text && text.length >= 2) {
+          const stableClasses = attrs.class.split(' ')
+            .filter(c => c.length > 0)
+            .filter(c => !this.isDynamicClass(c))
+            .slice(0, 1);
+
+          if (stableClasses.length > 0) {
+            return `${htmlElement}.${stableClasses[0]}:text("${this.escapeAttributeValue(text)}")`;
+          }
+        }
+        return null;
+      },
+
+      // Strategy 9: element type + text (last resort)
+      () => {
+        if (text && text.length >= 3) {
+          return `${htmlElement}:text("${this.escapeAttributeValue(text)}")`;
+        }
+        return null;
+      }
+    ];
+
+    // Try each strategy and validate uniqueness
+    for (const strategy of strategies) {
+      const selector = strategy();
+      if (!selector) continue;
+
+      if (this.isSelectorUnique(selector, pageSource, htmlElement, text)) {
+        logger.info(`Generated unique selector: ${selector}`);
+        return selector;
+      }
+    }
+
+    // Fallback: use text with element type (even if not unique)
+    logger.warn(`Could not generate unique selector for ${htmlElement} "${text.substring(0, 30)}", using fallback`);
+    if (text && text.length > 0) {
+      return `${htmlElement}:text("${this.escapeAttributeValue(text)}")`;
+    }
+
+    return htmlElement;
+  }
+
+  /**
+   * Check if a selector would be unique on the page
+   * Simple heuristic using HTML string matching
+   */
+  isSelectorUnique(selector, pageSource, elementType, text) {
+    // For ID selectors, check if ID appears only once
+    if (selector.startsWith('#')) {
+      const idMatch = selector.match(/#([\w-]+)/);
+      if (idMatch) {
+        const id = idMatch[1];
+        const regex = new RegExp(`id=["']${id}["']`, 'gi');
+        const matches = pageSource.match(regex);
+        return matches && matches.length === 1;
+      }
+    }
+
+    // For text-based selectors, count occurrences of that text in similar elements
+    if (selector.includes(':text') && text) {
+      const textRegex = new RegExp(`>${text}<`, 'gi');
+      const matches = pageSource.match(textRegex);
+      return matches && matches.length === 1;
+    }
+
+    // For href selectors
+    if (selector.includes('[href=')) {
+      const hrefMatch = selector.match(/\[href=["']([^"']+)["']\]/);
+      if (hrefMatch) {
+        const href = hrefMatch[1];
+        const regex = new RegExp(`href=["']${href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'gi');
+        const matches = pageSource.match(regex);
+        return matches && matches.length === 1;
+      }
+    }
+
+    // For name selectors
+    if (selector.includes('[name=')) {
+      const nameMatch = selector.match(/\[name=["']([^"']+)["']\]/);
+      if (nameMatch) {
+        const name = nameMatch[1];
+        const regex = new RegExp(`name=["']${name}["']`, 'gi');
+        const matches = pageSource.match(regex);
+        return matches && matches.length === 1;
+      }
+    }
+
+    // Default to assuming it might be unique
+    return true;
+  }
+
+  /**
    * Build robust CSS selector from element attributes
    * Combines multiple attributes for uniqueness when necessary
+   * @deprecated Use buildUniqueSelector instead
    */
   buildSelector(element) {
     const attrs = element.attributes || {};
