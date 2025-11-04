@@ -406,15 +406,22 @@ class AutonomousCrawler {
 
       logger.info(`  ✅ Generated ${scenarios.length} scenarios for flow-level tests (will be processed after crawl)`)
 
-      const links = analysis.interactiveElements.filter(el => el.element_type === 'link' && el.href);
-      logger.info(`  🔗 Found ${links.length} links to enqueue`);
+      const linksToFollow = analysis.linksToFollow || [];
+      logger.info(`  🔗 Found ${linksToFollow.length} links to enqueue`);
 
-      for (const link of links) {
+      for (const link of linksToFollow) {
         if (depth + 1 <= this.testConfig.max_depth && this.pagesDiscovered < this.testConfig.max_pages) {
-          const clickStep = PathNavigator.createClickStep(link.selector, link.text_content);
+          const linkElement = analysis.interactiveElements.find(el =>
+            el.href === link.url || (el.text_content && el.text_content.includes(link.text))
+          );
+
+          const selector = linkElement ? linkElement.selector : `a[href="${link.url}"]`;
+          const clickStep = PathNavigator.createClickStep(selector, link.text);
           const newSteps = PathNavigator.buildStepSequence(parentSteps, clickStep);
 
-          await this.enqueueUrl(link.href, depth + 1, pageId, null, 'medium', newSteps);
+          const priority = link.priority || 'medium';
+          await this.enqueueUrl(link.url, depth + 1, pageId, null, priority, newSteps);
+          logger.info(`    📥 Enqueued: ${link.text} → ${link.url}`);
         }
       }
 
