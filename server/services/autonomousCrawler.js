@@ -885,7 +885,10 @@ class AutonomousCrawler {
 
       logger.info(`Found ${queueItems.rows.length} pages to process at depth ${currentDepth}`);
 
-      this.browserPool = new BrowserPoolManager(this.maxParallelCrawls);
+      const browsersNeeded = Math.min(queueItems.rows.length, this.maxParallelCrawls);
+      logger.info(`🚀 Launching ${browsersNeeded} browser(s) for ${queueItems.rows.length} page(s)`);
+
+      this.browserPool = new BrowserPoolManager(browsersNeeded);
       await this.browserPool.initialize();
 
       try {
@@ -961,7 +964,9 @@ class AutonomousCrawler {
 
       logger.info(`\n🌐 [Depth ${item.depth_level}] Path-based crawling: ${item.url}`);
 
-      const requiredSteps = item.required_steps ? JSON.parse(item.required_steps) : [];
+      const requiredSteps = item.required_steps
+        ? (typeof item.required_steps === 'string' ? JSON.parse(item.required_steps) : item.required_steps)
+        : [];
       logger.info(`  Required steps from base URL: ${requiredSteps.length}`);
 
       const navigator = new PathNavigator(browser.page);

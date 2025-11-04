@@ -83,11 +83,21 @@ class PathNavigator {
   async clearBrowserData() {
     const context = this.page.context();
     await context.clearCookies();
-    await this.page.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-    logger.info('🧹 Cleared browser data (cookies, localStorage, sessionStorage)');
+
+    try {
+      await this.page.evaluate(() => {
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+        } catch (e) {
+          console.log('Could not clear storage:', e.message);
+        }
+      });
+      logger.info('🧹 Cleared browser data (cookies, localStorage, sessionStorage)');
+    } catch (error) {
+      logger.warn(`Could not clear storage: ${error.message}`);
+      logger.info('🧹 Cleared cookies (storage access denied)');
+    }
   }
 
   static buildStepSequence(parentSteps, newStep) {

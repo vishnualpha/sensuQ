@@ -84,10 +84,20 @@ class BrowserPoolManager {
   async resetBrowser(browser) {
     try {
       await browser.context.clearCookies();
-      await browser.page.evaluate(() => {
-        localStorage.clear();
-        sessionStorage.clear();
-      });
+
+      try {
+        await browser.page.evaluate(() => {
+          try {
+            localStorage.clear();
+            sessionStorage.clear();
+          } catch (e) {
+            console.log('Could not clear storage:', e.message);
+          }
+        });
+      } catch (evalError) {
+        logger.warn(`Could not clear storage for browser ${browser.id}: ${evalError.message}`);
+      }
+
       logger.info(`🔄 Browser ${browser.id} reset to clean state`);
     } catch (error) {
       logger.error(`Error resetting browser ${browser.id}: ${error.message}`);
