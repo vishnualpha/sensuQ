@@ -339,6 +339,9 @@ class IntelligentPageAnalyzer {
     logger.info(`Clickable elements found: ${pageContext.clickableElements?.length || 0}`);
     logger.info(`Buttons found: ${pageContext.buttons?.length || 0}`);
     logger.info(`Links found: ${pageContext.links?.length || 0}`);
+    if (pageContext.links && pageContext.links.length > 0) {
+      logger.info(`Sample links: ${JSON.stringify(pageContext.links.slice(0, 5), null, 2)}`);
+    }
     if (pageContext.clickableElements && pageContext.clickableElements.length > 0) {
       logger.info(`Sample clickable elements: ${JSON.stringify(pageContext.clickableElements.slice(0, 3), null, 2)}`);
     }
@@ -381,6 +384,11 @@ class IntelligentPageAnalyzer {
       logger.info(`Links to follow: ${analysis.linksToFollow?.length || 0}`);
       if (analysis.keyInteractions && analysis.keyInteractions.length > 0) {
         logger.info(`Sample interactions: ${JSON.stringify(analysis.keyInteractions, null, 2)}`);
+      }
+      if (analysis.linksToFollow && analysis.linksToFollow.length > 0) {
+        logger.info(`Links to follow from LLM: ${JSON.stringify(analysis.linksToFollow, null, 2)}`);
+      } else {
+        logger.warn(`⚠️ LLM returned no links to follow!`);
       }
 
       if (analysis.linksToFollow && analysis.linksToFollow.length > 0) {
