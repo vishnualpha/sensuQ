@@ -1239,6 +1239,14 @@ class AutonomousCrawler {
     }
 
     const interactiveElements = analysis.interactiveElements || [];
+    console.log('🔍 DEBUG: Total interactive elements:', interactiveElements.length);
+    console.log('🔍 DEBUG: First 3 elements:', JSON.stringify(interactiveElements.slice(0, 3).map(el => ({
+      tag: el.tag_name,
+      text: el.text_content?.substring(0, 30),
+      selector: el.selector,
+      href: el.href,
+      role: el.attributes?.role
+    })), null, 2));
 
     const navigableElements = interactiveElements.filter(el => {
       const tag = el.tag_name?.toLowerCase();
