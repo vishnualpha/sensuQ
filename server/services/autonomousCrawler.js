@@ -1272,7 +1272,10 @@ class AutonomousCrawler {
       selector: el.selector
     })), null, 2));
 
+    let elementIndex = 0;
     for (const element of navigableElements) {
+      elementIndex++;
+      logger.info(`\n  [${elementIndex}/${navigableElements.length}] Processing element...`);
       if (this.pagesDiscovered >= this.testConfig.max_pages) {
         logger.info(`  ⏹️ Max pages reached, stopping link discovery`);
         break;
@@ -1317,11 +1320,39 @@ class AutonomousCrawler {
 
         if (endUrl !== startUrl) {
           logger.info(`    ⬅️ Navigating back to: ${currentUrl}`);
-          await page.goBack({ waitUntil: 'networkidle', timeout: 10000 }).catch(async () => {
-            logger.warn(`    ⚠️ goBack failed, navigating directly`);
-            await page.goto(currentUrl, { waitUntil: 'networkidle', timeout: 10000 });
-          });
-          await page.waitForTimeout(1000);
+
+          try {
+            await page.goBack({ waitUntil: 'networkidle', timeout: 10000 });
+            await page.waitForTimeout(1500);
+
+            // Verify we're back on the correct page
+            const backUrl = page.url();
+            if (backUrl !== currentUrl) {
+              logger.warn(`    ⚠️ goBack went to ${backUrl}, expected ${currentUrl}. Navigating directly.`);
+              await page.goto(currentUrl, { waitUntil: 'networkidle', timeout: 10000 });
+              await page.waitForTimeout(1500);
+            }
+
+            // Double-check we're on the right page
+            const finalUrl = page.url();
+            if (finalUrl === currentUrl) {
+              logger.info(`    ✅ Successfully returned to ${currentUrl} - continuing with remaining ${navigableElements.length - (navigableElements.indexOf(element) + 1)} elements`);
+            } else {
+              logger.error(`    ❌ Still on wrong page: ${finalUrl} (expected ${currentUrl})`);
+            }
+          } catch (backError) {
+            logger.warn(`    ⚠️ goBack failed: ${backError.message}. Navigating directly.`);
+            try {
+              await page.goto(currentUrl, { waitUntil: 'networkidle', timeout: 10000 });
+              await page.waitForTimeout(1500);
+              const finalUrl = page.url();
+              logger.info(`    ✅ Direct navigation to ${finalUrl} successful`);
+            } catch (navError) {
+              logger.error(`    ❌ Failed to return to ${currentUrl}: ${navError.message}`);
+              logger.error(`    🛑 Cannot continue with remaining elements on this page`);
+              break;
+            }
+          }
         }
 
       } catch (error) {
