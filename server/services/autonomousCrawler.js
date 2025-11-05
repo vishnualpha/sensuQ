@@ -125,22 +125,23 @@ class AutonomousCrawler {
   }
 
   /**
-   * Initialize browser instance
+   * Initialize browser instance with stealth configuration
    */
   async initializeBrowser() {
+    const StealthConfig = require('../utils/stealthConfig');
+
     this.browser = await chromium.launch({
       headless: false,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: StealthConfig.getBrowserArgs()
     });
 
-    this.context = await this.browser.newContext({
-      viewport: { width: 1920, height: 1080 },
-      userAgent: 'SensuQ-Autonomous-Tester/1.0'
-    });
+    this.context = await this.browser.newContext(StealthConfig.getContextOptions());
 
     this.page = await this.context.newPage();
 
-    logger.info('Browser initialized successfully');
+    await StealthConfig.applyStealthScripts(this.page);
+
+    logger.info('Browser initialized successfully with stealth configuration');
   }
 
   /**
@@ -323,9 +324,14 @@ class AutonomousCrawler {
 
     try {
       const page = browser.page;
+      const StealthConfig = require('../utils/stealthConfig');
+
       logger.info(`Crawling page (depth ${depth}): ${url}`);
 
-      await page.waitForTimeout(2000);
+      // Ensure stealth scripts are applied (in case of page reload/navigation)
+      await StealthConfig.applyStealthScripts(page);
+
+      await StealthConfig.randomDelay(1000, 2000);
 
       try {
         await Promise.race([
