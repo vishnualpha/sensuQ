@@ -158,12 +158,23 @@ CRITICAL:
   }
 
   /**
-   * Build unique selector with proper validation
+   * Build unique selector - ALWAYS prefer text-based selectors for links
    */
   buildUniqueSelector(element, pageSource) {
     const htmlElement = this.normalizeElementType(element.elementType);
     const attrs = element.attributes || {};
     const text = element.textContent?.trim() || '';
+
+    // For links with text, ALWAYS use text selector (most reliable)
+    // Even if ID exists, it might not be unique
+    if (htmlElement === 'a' && text && text.length >= 1) {
+      return `a:has-text("${this.escapeText(text)}")`;
+    }
+
+    // For buttons with text, use text selector
+    if (htmlElement === 'button' && text && text.length >= 1) {
+      return `button:has-text("${this.escapeText(text)}")`;
+    }
 
     // Strategy 1: ID (if unique)
     if (attrs.id && this.isUnique(pageSource, `id="${attrs.id}"`)) {
@@ -185,7 +196,7 @@ CRITICAL:
     }
 
     // Strategy 4: name attribute
-    if (attrs.name && ['input', 'select', 'textarea', 'button'].includes(htmlElement)) {
+    if (attrs.name && ['input', 'select', 'textarea'].includes(htmlElement)) {
       if (this.isUnique(pageSource, `name="${attrs.name}"`)) {
         return `[name="${attrs.name}"]`;
       }
@@ -196,19 +207,19 @@ CRITICAL:
       return `[aria-label="${attrs['aria-label']}"]`;
     }
 
-    // Strategy 6: href for links
+    // Strategy 6: href for links (if no text available)
     if (htmlElement === 'a' && attrs.href && attrs.href !== '#') {
       if (this.isUnique(pageSource, `href="${attrs.href}"`)) {
         return `a[href="${attrs.href}"]`;
       }
     }
 
-    // Strategy 7: Text content (Playwright text selector - most reliable for links)
+    // Strategy 7: Text content for other elements
     if (text && text.length >= 1) {
       return `${htmlElement}:has-text("${this.escapeText(text)}")`;
     }
 
-    // Strategy 8: Combine element with attributes
+    // Strategy 8: Form elements by type
     if (attrs.type && htmlElement === 'input') {
       return `input[type="${attrs.type}"]`;
     }

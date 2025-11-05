@@ -1702,6 +1702,35 @@ class AutonomousCrawler {
    */
   async clickElementWithHealing(page, selector, text, element) {
     try {
+      // Check if selector matches multiple elements
+      const count = await page.locator(selector).count();
+
+      if (count > 1 && text) {
+        // Non-unique selector! Use text-based selector instead
+        logger.warn(`    ⚠️ Selector matches ${count} elements, using text-based selector`);
+        const textSelector = `${element.element_type}:has-text("${text.trim()}")`;
+        const textCount = await page.locator(textSelector).count();
+
+        if (textCount === 1) {
+          await page.click(textSelector, { timeout: 5000 });
+          logger.info(`    ✅ Clicked using text selector: ${textSelector}`);
+          element.selector = textSelector;
+          return true;
+        } else if (textCount > 1) {
+          // Multiple elements with same text, try exact text match
+          const exactSelector = `${element.element_type}:text-is("${text.trim()}")`;
+          const exactCount = await page.locator(exactSelector).count();
+
+          if (exactCount >= 1) {
+            await page.locator(exactSelector).first().click({ timeout: 5000 });
+            logger.info(`    ✅ Clicked first match of exact text: ${exactSelector}`);
+            element.selector = exactSelector;
+            return true;
+          }
+        }
+      }
+
+      // Try original selector
       await page.click(selector, { timeout: 5000 });
       logger.info(`    ✅ Clicked using original selector`);
       return true;
