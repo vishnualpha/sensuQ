@@ -1257,6 +1257,7 @@ class AutonomousCrawler {
       const text = el.text_content?.toLowerCase() || '';
 
       if (elementType === 'link') return true;
+      if (elementType === 'a') return true;
       if (elementType === 'button') return true;
       if (elementType === 'tab') return true;
       if (elementType === 'menu-item') return true;
