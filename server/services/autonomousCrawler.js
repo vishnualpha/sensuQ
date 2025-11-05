@@ -1348,7 +1348,7 @@ class AutonomousCrawler {
           logger.info(`    ⬅️ Navigating back to: ${currentUrl}`);
 
           try {
-            await page.goBack({ waitUntil: 'networkidle', timeout: 10000 });
+            await page.goto(startUrl, { waitUntil: 'networkidle', timeout: 10000 });
             await page.waitForTimeout(1500);
 
             // Verify we're back on the correct page
