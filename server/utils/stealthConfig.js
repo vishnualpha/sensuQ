@@ -14,13 +14,10 @@ class StealthConfig {
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
       '--disable-dev-shm-usage',
-      '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--allow-running-insecure-content',
+      '--disable-features=IsolateOrigins,site-per-process,AutomationControlled',
       '--disable-infobars',
       '--window-size=1920,1080',
       '--start-maximized',
-      '--disable-extensions',
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-background-timer-throttling',
@@ -29,18 +26,26 @@ class StealthConfig {
       '--disable-background-networking',
       '--disable-breakpad',
       '--disable-component-extensions-with-background-pages',
-      '--disable-features=TranslateUI',
       '--disable-ipc-flooding-protection',
       '--disable-hang-monitor',
       '--metrics-recording-only',
       '--mute-audio',
-      '--no-default-browser-check',
-      '--no-first-run',
       '--safebrowsing-disable-auto-update',
-      '--enable-automation=false',
       '--password-store=basic',
       '--use-mock-keychain',
-      '--force-color-profile=srgb'
+      '--force-color-profile=srgb',
+      '--disable-field-trial-config',
+      '--disable-background-mode',
+      '--disable-extensions-except=',
+      '--disable-extensions',
+      '--enable-features=NetworkService,NetworkServiceInProcess',
+      '--disable-features=ImprovedCookieControls,LazyFrameLoading,GlobalMediaControls,DestroyProfileOnBrowserClose,MediaRouter,DialMediaRouteProvider,AcceptCHFrame,AutoExpandDetailsElement,CertificateTransparencyComponentUpdater,AvoidUnnecessaryBeforeUnloadCheckSync',
+      '--allow-pre-commit-input',
+      '--disable-hang-monitor',
+      '--disable-prompt-on-repost',
+      '--disable-sync',
+      '--disable-domain-reliability',
+      '--disable-component-update'
     ];
   }
 
@@ -93,13 +98,100 @@ class StealthConfig {
   static async applyStealthScripts(page) {
     try {
       await page.addInitScript(() => {
-        // Override the navigator.webdriver property
+        // CRITICAL: Remove webdriver from prototype chain
+        delete Object.getPrototypeOf(navigator).webdriver;
+
+        // Override the navigator.webdriver property (return false, not undefined)
         Object.defineProperty(navigator, 'webdriver', {
-          get: () => undefined,
-          configurable: true
+          get: () => false
         });
 
-        // Mock plugins
+        // Override chrome detection
+        window.chrome = {
+          app: {
+            isInstalled: false,
+            InstallState: {
+              DISABLED: 'disabled',
+              INSTALLED: 'installed',
+              NOT_INSTALLED: 'not_installed'
+            },
+            RunningState: {
+              CANNOT_RUN: 'cannot_run',
+              READY_TO_RUN: 'ready_to_run',
+              RUNNING: 'running'
+            }
+          },
+          runtime: {
+            OnInstalledReason: {
+              CHROME_UPDATE: 'chrome_update',
+              INSTALL: 'install',
+              SHARED_MODULE_UPDATE: 'shared_module_update',
+              UPDATE: 'update'
+            },
+            OnRestartRequiredReason: {
+              APP_UPDATE: 'app_update',
+              OS_UPDATE: 'os_update',
+              PERIODIC: 'periodic'
+            },
+            PlatformArch: {
+              ARM: 'arm',
+              ARM64: 'arm64',
+              MIPS: 'mips',
+              MIPS64: 'mips64',
+              X86_32: 'x86-32',
+              X86_64: 'x86-64'
+            },
+            PlatformNaclArch: {
+              ARM: 'arm',
+              MIPS: 'mips',
+              MIPS64: 'mips64',
+              X86_32: 'x86-32',
+              X86_64: 'x86-64'
+            },
+            PlatformOs: {
+              ANDROID: 'android',
+              CROS: 'cros',
+              LINUX: 'linux',
+              MAC: 'mac',
+              OPENBSD: 'openbsd',
+              WIN: 'win'
+            },
+            RequestUpdateCheckStatus: {
+              NO_UPDATE: 'no_update',
+              THROTTLED: 'throttled',
+              UPDATE_AVAILABLE: 'update_available'
+            },
+            connect: () => {},
+            sendMessage: () => {}
+          },
+          loadTimes: function() {
+            return {
+              commitLoadTime: Date.now() / 1000 - Math.random() * 10,
+              connectionInfo: 'http/1.1',
+              finishDocumentLoadTime: Date.now() / 1000 - Math.random() * 5,
+              finishLoadTime: Date.now() / 1000 - Math.random() * 3,
+              firstPaintAfterLoadTime: Date.now() / 1000 - Math.random() * 2,
+              firstPaintTime: Date.now() / 1000 - Math.random() * 4,
+              navigationType: 'Other',
+              npnNegotiatedProtocol: 'h2',
+              requestTime: Date.now() / 1000 - Math.random() * 15,
+              startLoadTime: Date.now() / 1000 - Math.random() * 12,
+              wasAlternateProtocolAvailable: false,
+              wasFetchedViaSpdy: true,
+              wasNpnNegotiated: true
+            };
+          },
+          csi: function() {
+            return {
+              onloadT: Date.now(),
+              pageT: Math.random() * 1000,
+              startE: Date.now() - Math.random() * 10000,
+              tran: 15
+            };
+          }
+        };
+
+        // Mock plugins with realistic data
         Object.defineProperty(navigator, 'plugins', {
           get: () => [
             {
@@ -132,6 +224,16 @@ class StealthConfig {
           get: () => ['en-US', 'en']
         });
 
+        // Mock hardwareConcurrency
+        Object.defineProperty(navigator, 'hardwareConcurrency', {
+          get: () => 8
+        });
+
+        // Mock deviceMemory
+        Object.defineProperty(navigator, 'deviceMemory', {
+          get: () => 8
+        });
+
         // Mock permissions
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = (parameters) => (
@@ -140,30 +242,23 @@ class StealthConfig {
             : originalQuery(parameters)
         );
 
-        // Add chrome runtime
-        if (!window.chrome) {
-          window.chrome = {};
-        }
-
-        if (!window.chrome.runtime) {
-          window.chrome.runtime = {
-            connect: () => {},
-            sendMessage: () => {}
-          };
-        }
-
-        // Override automation-related properties
-        delete navigator.__proto__.webdriver;
-
         // Mock battery API
-        Object.defineProperty(navigator, 'getBattery', {
-          value: () => Promise.resolve({
-            charging: true,
-            chargingTime: 0,
-            dischargingTime: Infinity,
-            level: 1.0
-          })
-        });
+        if (!navigator.getBattery) {
+          Object.defineProperty(navigator, 'getBattery', {
+            value: () => Promise.resolve({
+              charging: true,
+              chargingTime: 0,
+              dischargingTime: Infinity,
+              level: 1.0,
+              addEventListener: () => {},
+              removeEventListener: () => {},
+              onchargingchange: null,
+              onchargingtimechange: null,
+              ondischargingtimechange: null,
+              onlevelchange: null
+            })
+          });
+        }
 
         // Mock connection
         Object.defineProperty(navigator, 'connection', {
@@ -171,9 +266,40 @@ class StealthConfig {
             effectiveType: '4g',
             rtt: 50,
             downlink: 10,
-            saveData: false
-          })
+            saveData: false,
+            onchange: null,
+            addEventListener: () => {},
+            removeEventListener: () => {}
+          }),
+          configurable: true
         });
+
+        // Mock media devices
+        if (!navigator.mediaDevices) {
+          Object.defineProperty(navigator, 'mediaDevices', {
+            get: () => ({
+              enumerateDevices: () => Promise.resolve([
+                { deviceId: 'default', kind: 'audioinput', label: '', groupId: '' },
+                { deviceId: 'default', kind: 'audiooutput', label: '', groupId: '' },
+                { deviceId: 'default', kind: 'videoinput', label: '', groupId: '' }
+              ]),
+              getUserMedia: () => Promise.reject(new Error('Permission denied')),
+              getSupportedConstraints: () => ({
+                aspectRatio: true,
+                deviceId: true,
+                echoCancellation: true,
+                facingMode: true,
+                frameRate: true,
+                groupId: true,
+                height: true,
+                sampleRate: true,
+                sampleSize: true,
+                volume: true,
+                width: true
+              })
+            })
+          });
+        }
 
         // Override toString methods to avoid detection
         const originalToString = Function.prototype.toString;
@@ -181,8 +307,19 @@ class StealthConfig {
           if (this === navigator.permissions.query) {
             return 'function query() { [native code] }';
           }
+          if (this === window.chrome.loadTimes) {
+            return 'function loadTimes() { [native code] }';
+          }
+          if (this === window.chrome.csi) {
+            return 'function csi() { [native code] }';
+          }
           return originalToString.call(this);
         };
+
+        // Remove automation traces
+        if (window.document.__proto__) {
+          delete window.document.__proto__.documentElement;
+        }
       });
 
       logger.info('✅ Stealth scripts applied to page');
