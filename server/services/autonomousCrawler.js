@@ -386,6 +386,31 @@ class AutonomousCrawler {
         await this.saveCrawlPathWithSteps(fromPageId, pageId, interactionElementId, depth, parentSteps);
       }
 
+      // Check if this is a login/auth page and handle it
+      const isLoginPage = this.detectLoginPage(analysis.pageType, analysis.screenName, analysis.interactiveElements);
+      if (isLoginPage && this.testConfig.credentials) {
+        logger.info(`🔐 Detected login page - attempting to authenticate`);
+        const loginSuccess = await this.handleLoginForm(page, analysis.interactiveElements);
+
+        if (loginSuccess) {
+          logger.info(`✅ Login successful - continuing crawl as authenticated user`);
+
+          // Wait for redirect after login
+          await page.waitForTimeout(2000);
+          const afterLoginUrl = page.url();
+
+          if (afterLoginUrl !== url) {
+            logger.info(`📍 Redirected to: ${afterLoginUrl}`);
+            // Enqueue the post-login page for crawling
+            const loginStep = PathNavigator.createFormFillStep(analysis.interactiveElements);
+            const newSteps = PathNavigator.buildStepSequence(parentSteps, loginStep);
+            await this.enqueueUrl(afterLoginUrl, depth + 1, pageId, null, 'high', newSteps);
+          }
+        } else {
+          logger.warn(`⚠️ Login attempt failed - continuing without authentication`);
+        }
+      }
+
       const scenarios = await this.interactionPlanner.generateScenarios(
         pageId,
         this.testRunId,
@@ -1370,6 +1395,119 @@ class AutonomousCrawler {
     }
 
     logger.info(`  ✅ Link discovery complete`);
+  }
+
+  /**
+   * Detect if this is a login/authentication page
+   */
+  detectLoginPage(pageType, screenName, elements) {
+    const pageTypeLower = (pageType || '').toLowerCase();
+    const screenNameLower = (screenName || '').toLowerCase();
+
+    // Check page type and screen name
+    if (pageTypeLower.includes('login') || pageTypeLower.includes('auth') ||
+        pageTypeLower.includes('signin') || pageTypeLower.includes('sign-in') ||
+        screenNameLower.includes('login') || screenNameLower.includes('sign in')) {
+      return true;
+    }
+
+    // Check for password field + submit button combination
+    const hasPasswordField = elements.some(el =>
+      el.element_type === 'input' &&
+      (el.attributes?.type === 'password' ||
+       el.text_content?.toLowerCase().includes('password'))
+    );
+
+    const hasEmailOrUsername = elements.some(el =>
+      el.element_type === 'input' &&
+      (el.attributes?.type === 'email' ||
+       el.attributes?.type === 'text' &&
+       (el.text_content?.toLowerCase().includes('email') ||
+        el.text_content?.toLowerCase().includes('username')))
+    );
+
+    const hasSubmitButton = elements.some(el =>
+      (el.element_type === 'button' || el.element_type === 'input') &&
+      (el.text_content?.toLowerCase().includes('login') ||
+       el.text_content?.toLowerCase().includes('sign in') ||
+       el.attributes?.type === 'submit')
+    );
+
+    return hasPasswordField && hasEmailOrUsername && hasSubmitButton;
+  }
+
+  /**
+   * Attempt to fill and submit a login form
+   */
+  async handleLoginForm(page, elements) {
+    try {
+      const credentials = JSON.parse(this.testConfig.credentials);
+
+      // Find username/email field
+      const usernameField = elements.find(el =>
+        el.element_type === 'input' &&
+        (el.attributes?.type === 'email' ||
+         el.attributes?.type === 'text' ||
+         el.attributes?.name?.toLowerCase().includes('user') ||
+         el.attributes?.name?.toLowerCase().includes('email') ||
+         el.text_content?.toLowerCase().includes('email') ||
+         el.text_content?.toLowerCase().includes('username'))
+      );
+
+      // Find password field
+      const passwordField = elements.find(el =>
+        el.element_type === 'input' &&
+        (el.attributes?.type === 'password' ||
+         el.attributes?.name?.toLowerCase().includes('pass'))
+      );
+
+      // Find submit button
+      const submitButton = elements.find(el =>
+        (el.element_type === 'button' || el.element_type === 'input') &&
+        (el.text_content?.toLowerCase().includes('login') ||
+         el.text_content?.toLowerCase().includes('sign in') ||
+         el.attributes?.type === 'submit')
+      );
+
+      if (!usernameField || !passwordField || !submitButton) {
+        logger.warn(`Missing login form elements: username=${!!usernameField}, password=${!!passwordField}, submit=${!!submitButton}`);
+        return false;
+      }
+
+      logger.info(`  📝 Filling username field: ${usernameField.selector}`);
+      await page.fill(usernameField.selector, credentials.username || credentials.email || 'test@example.com');
+
+      await page.waitForTimeout(500);
+
+      logger.info(`  📝 Filling password field: ${passwordField.selector}`);
+      await page.fill(passwordField.selector, credentials.password || 'password123');
+
+      await page.waitForTimeout(500);
+
+      logger.info(`  🖱️ Clicking submit button: ${submitButton.selector}`);
+      await Promise.all([
+        page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}),
+        page.click(submitButton.selector)
+      ]);
+
+      await page.waitForTimeout(2000);
+
+      // Check if login was successful (URL changed or no error messages)
+      const currentUrl = page.url();
+      const hasErrorMessage = await page.locator('text=/error|invalid|incorrect|failed/i').count() > 0;
+
+      if (!hasErrorMessage) {
+        logger.info(`  ✅ No error messages detected, assuming login successful`);
+        return true;
+      } else {
+        logger.warn(`  ⚠️ Error message detected on page after login attempt`);
+        return false;
+      }
+
+    } catch (error) {
+      logger.error(`Login form handling failed: ${error.message}`);
+      return false;
+    }
   }
 
   /**
