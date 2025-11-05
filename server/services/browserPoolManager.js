@@ -24,17 +24,19 @@ class BrowserPoolManager {
   }
 
   async launchBrowser() {
+    const StealthConfig = require('../utils/stealthConfig');
+
     const browser = await chromium.launch({
       headless: false,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: StealthConfig.getBrowserArgs()
     });
 
-    const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
-      userAgent: 'SensuQ-Autonomous-Tester/1.0'
-    });
+    const context = await browser.newContext(StealthConfig.getContextOptions());
 
     const page = await context.newPage();
+
+    await StealthConfig.applyStealthScripts(page);
+
     const browserId = crypto.randomUUID();
 
     return {
@@ -83,6 +85,8 @@ class BrowserPoolManager {
 
   async resetBrowser(browser) {
     try {
+      const StealthConfig = require('../utils/stealthConfig');
+
       await browser.context.clearCookies();
 
       try {
@@ -98,7 +102,10 @@ class BrowserPoolManager {
         logger.warn(`Could not clear storage for browser ${browser.id}: ${evalError.message}`);
       }
 
-      logger.info(`🔄 Browser ${browser.id} reset to clean state`);
+      // Reapply stealth scripts after reset
+      await StealthConfig.applyStealthScripts(browser.page);
+
+      logger.info(`🔄 Browser ${browser.id} reset to clean state with stealth`);
     } catch (error) {
       logger.error(`Error resetting browser ${browser.id}: ${error.message}`);
       const newBrowser = await this.launchBrowser();
