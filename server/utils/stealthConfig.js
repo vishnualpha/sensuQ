@@ -76,6 +76,11 @@ class StealthConfig {
       permissions: ['geolocation', 'notifications'],
       geolocation: { latitude: 40.7128, longitude: -74.0060 },
       colorScheme: 'light',
+      bypassCSP: true,
+      ignoreHTTPSErrors: true,
+      javaScriptEnabled: true,
+      hasTouch: false,
+      isMobile: false,
       extraHTTPHeaders: {
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -86,6 +91,9 @@ class StealthConfig {
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
         'Cache-Control': 'max-age=0'
       }
     };
@@ -320,6 +328,88 @@ class StealthConfig {
         if (window.document.__proto__) {
           delete window.document.__proto__.documentElement;
         }
+
+        // Spoof notification permission
+        const originalNotification = window.Notification;
+        Object.defineProperty(window, 'Notification', {
+          get: () => {
+            const notification = originalNotification;
+            notification.permission = 'default';
+            return notification;
+          }
+        });
+
+        // Override iframe contentWindow to hide automation
+        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+          get: function() {
+            return window;
+          }
+        });
+
+        // Fix phantom properties
+        Object.defineProperty(navigator, 'maxTouchPoints', {
+          get: () => 10
+        });
+
+        Object.defineProperty(navigator, 'vendor', {
+          get: () => 'Google Inc.'
+        });
+
+        Object.defineProperty(navigator, 'platform', {
+          get: () => 'Win32'
+        });
+
+        // Fix screen properties
+        Object.defineProperty(screen, 'availHeight', {
+          get: () => 1040
+        });
+
+        Object.defineProperty(screen, 'availWidth', {
+          get: () => 1920
+        });
+
+        Object.defineProperty(screen, 'height', {
+          get: () => 1080
+        });
+
+        Object.defineProperty(screen, 'width', {
+          get: () => 1920
+        });
+
+        Object.defineProperty(screen, 'colorDepth', {
+          get: () => 24
+        });
+
+        Object.defineProperty(screen, 'pixelDepth', {
+          get: () => 24
+        });
+
+        // Override Intl to match real browser
+        if (window.Intl && window.Intl.DateTimeFormat) {
+          const originalDateTimeFormat = window.Intl.DateTimeFormat;
+          window.Intl.DateTimeFormat = function(...args) {
+            const instance = new originalDateTimeFormat(...args);
+            instance.resolvedOptions = function() {
+              return {
+                locale: 'en-US',
+                calendar: 'gregory',
+                numberingSystem: 'latn',
+                timeZone: 'America/New_York',
+                hour12: true,
+                weekday: undefined,
+                era: undefined,
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                second: undefined,
+                timeZoneName: undefined
+              };
+            };
+            return instance;
+          };
+        }
       });
 
       logger.info('✅ Stealth scripts applied to page');
@@ -362,6 +452,60 @@ class StealthConfig {
     } catch (error) {
       logger.error(`Human-like click failed: ${error.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Wait for and bypass Cloudflare/bot detection challenges
+   */
+  static async waitForCloudflareBypass(page, timeout = 30000) {
+    try {
+      logger.info('🔍 Checking for Cloudflare/bot detection challenge...');
+
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < timeout) {
+        const content = await page.content();
+        const url = page.url();
+
+        // Check for Cloudflare challenge indicators
+        const isCloudflare = content.includes('Checking your browser') ||
+                           content.includes('Just a moment') ||
+                           content.includes('cloudflare') ||
+                           content.includes('cf-browser-verification') ||
+                           url.includes('cdn-cgi/challenge-platform');
+
+        // Check for generic error pages
+        const isErrorPage = content.includes('GenericError') ||
+                          content.includes('"error"') ||
+                          content.includes('Access Denied');
+
+        if (!isCloudflare && !isErrorPage) {
+          logger.info('✅ No challenge detected or challenge passed');
+          return true;
+        }
+
+        logger.info('⏳ Challenge detected, waiting...');
+        await this.randomDelay(2000, 3000);
+
+        // Try clicking on the challenge if present
+        try {
+          const challengeButton = await page.$('input[type="checkbox"]');
+          if (challengeButton) {
+            logger.info('🖱️ Clicking challenge checkbox...');
+            await this.humanLikeClick(page, 'input[type="checkbox"]');
+            await this.randomDelay(3000, 5000);
+          }
+        } catch (e) {
+          // Challenge button not found or already clicked
+        }
+      }
+
+      logger.warn('⚠️ Challenge timeout - may still be blocked');
+      return false;
+    } catch (error) {
+      logger.error(`Cloudflare bypass error: ${error.message}`);
+      return false;
     }
   }
 }

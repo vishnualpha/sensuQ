@@ -333,6 +333,9 @@ class AutonomousCrawler {
 
       await StealthConfig.randomDelay(1000, 2000);
 
+      // Wait for Cloudflare or other bot detection to pass
+      await StealthConfig.waitForCloudflareBypass(page, 30000);
+
       try {
         await Promise.race([
           this.handlePopupsAndModals(page),
