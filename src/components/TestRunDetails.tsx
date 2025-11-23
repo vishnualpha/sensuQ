@@ -22,6 +22,14 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
+// Utility function to get API base URL
+const getApiBaseUrl = () => {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3001/api';
+  }
+  return `${window.location.protocol}//${window.location.host}/api`;
+};
+
 // Component to display test step results with pass/fail status
 function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCaseId: number; testSteps: any; autoExpand?: boolean }) {
   const [stepResults, setStepResults] = useState<any[]>([]);
@@ -38,7 +46,7 @@ function TestStepResults({ testCaseId, testSteps, autoExpand = false }: { testCa
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/tests/cases/${testCaseId}/steps`, {
+      const response = await fetch(`${getApiBaseUrl()}/tests/cases/${testCaseId}/steps`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -189,9 +197,9 @@ function ScreenshotImage({ pageId, filename, alt, onClick }: { pageId?: number; 
         console.log(`🔍 Loading screenshot: pageId=${pageId}, filename=${filename}`);
         
         // Try database first (by pageId), then fallback to filename
-        const url = pageId 
-          ? `http://localhost:3001/api/screenshots/page/${pageId}`
-          : `http://localhost:3001/api/screenshots/${filename}`;
+        const url = pageId
+          ? `${getApiBaseUrl()}/screenshots/page/${pageId}`
+          : `${getApiBaseUrl()}/screenshots/${filename}`;
         
         console.log(`📡 Fetching screenshot from: ${url}`);
         
@@ -1284,7 +1292,7 @@ export default function TestRunDetails() {
                               alt={`Screenshot of ${page.title || page.url}`}
                               onClick={async () => {
                                 try {
-                                  const url = `http://localhost:3001/api/screenshots/page/${page.id}`;
+                                  const url = `${getApiBaseUrl()}/screenshots/page/${page.id}`;
                                   const response = await fetch(url);
                                   if (response.ok) {
                                     const data = await response.json();

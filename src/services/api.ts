@@ -1,6 +1,23 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+// Determine API base URL dynamically
+const getApiBaseUrl = () => {
+  // If explicitly set in env, use that
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  // In production/ngrok, use the same origin as the frontend
+  // In development, use localhost:3001
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3001/api';
+  }
+
+  // For ngrok or other deployments, use the same origin with /api path
+  return `${window.location.protocol}//${window.location.host}/api`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Create axios instance with default config
 const api = axios.create({

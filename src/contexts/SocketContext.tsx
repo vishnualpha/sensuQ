@@ -25,7 +25,16 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const newSocket = io('http://localhost:3001');
+    // Determine socket URL dynamically
+    const getSocketUrl = () => {
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:3001';
+      }
+      // For ngrok or other deployments, use the same origin
+      return `${window.location.protocol}//${window.location.host}`;
+    };
+
+    const newSocket = io(getSocketUrl());
     
     newSocket.on('connect', () => {
       setConnected(true);
