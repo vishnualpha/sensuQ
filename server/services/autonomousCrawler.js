@@ -10,6 +10,7 @@ const BrowserPoolManager = require('./browserPoolManager');
 const PathNavigator = require('./pathNavigator');
 const { pool } = require('../config/database');
 const { generatePageName } = require('../utils/pageNameGenerator');
+const { decrypt } = require('../utils/encryption');
 
 /**
  * Autonomous crawler that uses vision LLM to identify and interact with elements
@@ -47,6 +48,21 @@ class AutonomousCrawler {
 
     const maxConcurrentBrowsers = this.testConfig.max_concurrent_browsers || 3;
     this.maxParallelCrawls = Math.min(maxConcurrentBrowsers, 5);
+  }
+
+  /**
+   * Check if we can enqueue URLs from the current depth
+   * Enforces strict depth limit: pages at max_depth cannot discover new pages
+   */
+  canDiscoverFromDepth(currentDepth) {
+    return currentDepth < this.testConfig.max_depth;
+  }
+
+  /**
+   * Check if we can enqueue a URL at the target depth
+   */
+  canEnqueueAtDepth(targetDepth) {
+    return targetDepth <= this.testConfig.max_depth;
   }
 
   /**
@@ -125,23 +141,26 @@ class AutonomousCrawler {
   }
 
   /**
-   * Initialize browser instance with stealth configuration
+   * Initialize browser instance
    */
   async initializeBrowser() {
-    const StealthConfig = require('../utils/stealthConfig');
-
     this.browser = await chromium.launch({
       headless: false,
-      args: StealthConfig.getBrowserArgs()
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
     });
 
-    this.context = await this.browser.newContext(StealthConfig.getContextOptions());
+    this.context = await this.browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
 
     this.page = await this.context.newPage();
 
-    await StealthConfig.applyStealthScripts(this.page);
-
-    logger.info('Browser initialized successfully with stealth configuration');
+    logger.info('Browser initialized successfully');
   }
 
   /**
@@ -191,14 +210,12 @@ class AutonomousCrawler {
 
       await this.page.waitForTimeout(2000); // Wait for dynamic content
 
-      // Proactively dismiss popups/modals before analyzing the page
+      // Let vision LLM identify popups/modals as interactive elements
+      // Only auto-handle cookie consent as it blocks content
       try {
-        await Promise.race([
-          this.handlePopupsAndModals(this.page),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Popup handling timeout')), 8000))
-        ]);
-      } catch (popupError) {
-        logger.warn(`Popup handling timed out or failed: ${popupError.message}`);
+        await this.acceptCookies(this.page);
+      } catch (cookieError) {
+        logger.debug(`Cookie acceptance skipped: ${cookieError.message}`);
       }
 
       this.visitedUrls.add(url);
@@ -235,6 +252,12 @@ class AutonomousCrawler {
         url
       );
 
+      // Ensure interactiveElements is always an array
+      if (!analysis.interactiveElements || !Array.isArray(analysis.interactiveElements)) {
+        logger.warn(`Vision LLM did not return valid interactiveElements, using empty array`);
+        analysis.interactiveElements = [];
+      }
+
       logger.info(`Identified ${analysis.interactiveElements.length} interactive elements on ${analysis.screenName}`);
 
       // Save page to database
@@ -255,6 +278,29 @@ class AutonomousCrawler {
       // Record crawl path
       if (fromPageId) {
         await this.saveCrawlPath(fromPageId, pageId, interactionElementId, depth);
+      }
+
+      // Check if this is a login page and handle it (BEFORE generating scenarios)
+      const isLoginPage = await this.detectLoginPage(this.page, analysis.pageType, analysis.screenName, analysis.interactiveElements);
+      if (isLoginPage && this.testConfig.credentials) {
+        logger.info(`🔐 Detected login page - attempting to authenticate`);
+        const loginSuccess = await this.handleLoginForm(this.page, analysis.interactiveElements);
+
+        if (loginSuccess) {
+          logger.info(`✅ Login successful - continuing crawl as authenticated user`);
+
+          // Wait for redirect after login
+          await this.page.waitForTimeout(2000);
+          const afterLoginUrl = this.page.url();
+
+          if (afterLoginUrl !== url) {
+            logger.info(`📍 Redirected to: ${afterLoginUrl}`);
+            // Continue crawling from the post-login page
+            // Don't enqueue - just continue with current flow
+          }
+        } else {
+          logger.warn(`⚠️ Login attempt failed - continuing without authentication`);
+        }
       }
 
       // Generate interaction scenarios using LLM
@@ -279,13 +325,18 @@ class AutonomousCrawler {
       await this.updateRunningStats();
 
       // Execute scenarios instead of blind element clicking
-      for (const scenario of scenarios) {
-        if (depth >= this.testConfig.max_depth || this.pagesDiscovered >= this.testConfig.max_pages) {
-          break;
-        }
+      // Only execute scenarios if we can discover from current depth
+      if (this.canDiscoverFromDepth(depth)) {
+        for (const scenario of scenarios) {
+          if (!this.canDiscoverFromDepth(depth) || this.pagesDiscovered >= this.testConfig.max_pages) {
+            break;
+          }
 
-        logger.info(`🎬 Executing scenario: "${scenario.name}"`);
-        await this.executeScenario(scenario, pageId, depth);
+          logger.info(`🎬 Executing scenario: "${scenario.name}"`);
+          await this.executeScenario(scenario, pageId, depth);
+        }
+      } else {
+        logger.info(`⏭️ Skipping scenario execution - page at max depth ${depth}`);
       }
 
     } catch (error) {
@@ -324,25 +375,19 @@ class AutonomousCrawler {
 
     try {
       const page = browser.page;
-      const StealthConfig = require('../utils/stealthConfig');
 
       logger.info(`Crawling page (depth ${depth}): ${url}`);
 
-      // Ensure stealth scripts are applied (in case of page reload/navigation)
-      await StealthConfig.applyStealthScripts(page);
+      // Wait for page to be fully loaded and ready
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(2000);
 
-      await StealthConfig.randomDelay(1000, 2000);
-
-      // Wait for Cloudflare or other bot detection to pass
-      await StealthConfig.waitForCloudflareBypass(page, 30000);
-
+      // Let vision LLM identify popups/modals as interactive elements
+      // Only auto-handle cookie consent as it blocks content
       try {
-        await Promise.race([
-          this.handlePopupsAndModals(page),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Popup handling timeout')), 8000))
-        ]);
-      } catch (popupError) {
-        logger.warn(`Popup handling timed out or failed: ${popupError.message}`);
+        await this.acceptCookies(page);
+      } catch (cookieError) {
+        logger.debug(`Cookie acceptance skipped: ${cookieError.message}`);
       }
 
       this.visitedUrls.add(url);
@@ -365,6 +410,9 @@ class AutonomousCrawler {
         this.io.emit('crawlerProgress', progressData);
       }
 
+      // Additional wait for dynamic content to fully render
+      await page.waitForTimeout(1000);
+
       const screenshot = await page.screenshot({ fullPage: false });
       const screenshotBase64 = screenshot.toString('base64');
       const pageSource = await page.content();
@@ -376,7 +424,19 @@ class AutonomousCrawler {
         url
       );
 
+      // Ensure interactiveElements is always an array
+      if (!analysis.interactiveElements || !Array.isArray(analysis.interactiveElements)) {
+        logger.warn(`Vision LLM did not return valid interactiveElements, using empty array`);
+        analysis.interactiveElements = [];
+      }
+
       logger.info(`Identified ${analysis.interactiveElements.length} interactive elements on ${analysis.screenName}`);
+
+      if (analysis.interactiveElements.length === 0) {
+        logger.warn(`⚠️ WARNING: No interactive elements found on ${url} - page may not be fully loaded`);
+        logger.warn(`   Page title: ${title}`);
+        logger.warn(`   HTML length: ${pageSource.length} chars`);
+      }
 
       const pageId = await this.saveDiscoveredPage(
         url,
@@ -396,7 +456,7 @@ class AutonomousCrawler {
       }
 
       // Check if this is a login/auth page and handle it
-      const isLoginPage = this.detectLoginPage(analysis.pageType, analysis.screenName, analysis.interactiveElements);
+      const isLoginPage = await this.detectLoginPage(page, analysis.pageType, analysis.screenName, analysis.interactiveElements);
       if (isLoginPage && this.testConfig.credentials) {
         logger.info(`🔐 Detected login page - attempting to authenticate`);
         const loginSuccess = await this.handleLoginForm(page, analysis.interactiveElements);
@@ -515,9 +575,10 @@ class AutonomousCrawler {
         }
 
       } else if (element.element_type === 'input') {
-        // Fill input with test data
-        await this.page.fill(selector, 'test data');
-        logger.info(`Filled input: ${selector}`);
+        // Fill input with intelligent test data
+        const testData = this.generateIntelligentTestData(selector, element.text_content, element.element_type);
+        await this.page.fill(selector, testData);
+        logger.info(`Filled input: ${selector} with: ${testData}`);
         return true;
 
       } else if (element.element_type === 'select') {
@@ -558,6 +619,96 @@ class AutonomousCrawler {
         try {
           await this.executeScenarioStep(step);
           await this.stateDetector.waitForStateSettlement(this.page);
+
+          // CRITICAL: After ANY action, detect if state changed (modal, dynamic fields, etc.)
+          if (step.action === 'click' || step.action === 'fill') {
+            logger.info(`  🔍 Checking for state changes after ${step.action}...`);
+
+            // Wait for animations and state to settle
+            await this.page.waitForTimeout(2000);
+
+            const stateChange = await this.stateDetector.detectStateChange(
+              this.page,
+              i === 0 ? 'before_scenario' : `after_step_${i - 1}`,
+              `after_step_${i}`,
+              `${step.action} on ${step.textContent || step.selector}`
+            );
+
+            if (stateChange.significant) {
+              logger.info(`  🎭 State change detected: ${stateChange.changes.changeType}`);
+              logger.info(`  📝 ${stateChange.changes.description}`);
+
+              // Handle modal opening
+              if (stateChange.changes.changeType === 'modal_opened') {
+                logger.info(`  🪟 Modal opened - checking contents...`);
+
+                // If modal has login fields, attempt authentication
+                if (stateChange.changes.details.hasPasswordField && this.testConfig.credentials) {
+                  logger.info(`  🔐 Login modal detected - attempting authentication`);
+
+                  // Re-analyze page to get modal elements
+                  const screenshot = await this.page.screenshot({ encoding: 'base64', fullPage: false });
+                  const pageSource = await this.page.content();
+                  const currentUrl = this.page.url();
+
+                  const updatedAnalysis = await this.visionIdentifier.identifyInteractiveElements(
+                    screenshot,
+                    pageSource,
+                    currentUrl
+                  );
+
+                  if (!updatedAnalysis.interactiveElements || !Array.isArray(updatedAnalysis.interactiveElements)) {
+                    updatedAnalysis.interactiveElements = [];
+                  }
+
+                  const loginSuccess = await this.handleLoginForm(this.page, updatedAnalysis.interactiveElements);
+
+                  if (loginSuccess) {
+                    logger.info(`  ✅ Login successful via modal`);
+                    await this.page.waitForTimeout(2000);
+                  } else {
+                    logger.warn(`  ⚠️ Login attempt in modal failed`);
+                  }
+                } else {
+                  // Modal opened but not a login modal - continue with scenario
+                  logger.info(`  ℹ️ Non-login modal opened - continuing scenario`);
+                }
+              }
+
+              // Handle dynamic fields appearing (multi-step forms)
+              if (stateChange.changes.changeType === 'dynamic_fields' && stateChange.changes.details.newFields) {
+                logger.info(`  📝 New form fields appeared: ${JSON.stringify(stateChange.changes.details.newFields)}`);
+                // The new fields will be handled in subsequent steps if LLM generated them
+              }
+
+              // Handle login form appearing inline (not in modal)
+              if (stateChange.changes.changeType === 'login_form_appeared' && this.testConfig.credentials) {
+                logger.info(`  🔐 Login form appeared inline - attempting authentication`);
+
+                const screenshot = await this.page.screenshot({ encoding: 'base64', fullPage: false });
+                const pageSource = await this.page.content();
+                const currentUrl = this.page.url();
+
+                const updatedAnalysis = await this.visionIdentifier.identifyInteractiveElements(
+                  screenshot,
+                  pageSource,
+                  currentUrl
+                );
+
+                if (!updatedAnalysis.interactiveElements || !Array.isArray(updatedAnalysis.interactiveElements)) {
+                  updatedAnalysis.interactiveElements = [];
+                }
+
+                const loginSuccess = await this.handleLoginForm(this.page, updatedAnalysis.interactiveElements);
+
+                if (loginSuccess) {
+                  logger.info(`  ✅ Login successful`);
+                  await this.page.waitForTimeout(2000);
+                }
+              }
+            }
+          }
+
         } catch (stepError) {
           logger.warn(`  ❌ Step ${i + 1} failed: ${stepError.message}`);
           lastStepError = stepError.message;
@@ -672,7 +823,6 @@ class AutonomousCrawler {
    */
   async executeScenarioStep(step) {
     let selector = step.selector;
-    let elementFound = false;
 
     // Handle invalid Playwright locator syntax that LLM might generate
     if (selector.includes(':has-text(')) {
@@ -689,7 +839,8 @@ class AutonomousCrawler {
           throw new Error(`Element with text "${textContent}" not found`);
         }
 
-        const isVisible = await locator.first().isVisible();
+        // Wait for element to be visible with longer timeout for dynamic content
+        const isVisible = await locator.first().isVisible().catch(() => false);
         if (!isVisible) {
           throw new Error(`Element with text "${textContent}" not visible`);
         }
@@ -698,36 +849,49 @@ class AutonomousCrawler {
       }
     }
 
-    // Try the provided selector first
+    // Try the provided selector first - use locator for better visibility checking
     try {
-      await this.page.waitForSelector(selector, { timeout: 5000 });
-      const isVisible = await this.page.isVisible(selector);
-      if (isVisible) {
-        elementFound = true;
-      }
+      const element = this.page.locator(selector).first();
+
+      // Wait for element to exist in DOM with extended timeout for dynamic content
+      await element.waitFor({ state: 'attached', timeout: 8000 }).catch(() => {
+        throw new Error('Element not found in DOM');
+      });
+
+      // Wait for element to be visible with extended timeout
+      await element.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
+        throw new Error('Element exists but not visible');
+      });
+
+      logger.info(`  ✅ Element is visible and ready: ${selector}`);
+
     } catch (e) {
-      logger.warn(`Selector not found: ${selector}`);
+      logger.warn(`Selector not found or not visible: ${selector} - ${e.message}`);
 
       // Try to find by text content if available
-      if (step.textContent) {
+      if (step.textContent && step.textContent.length > 0) {
         logger.info(`Attempting to find element by text: "${step.textContent}"`);
+
+        // Try various text-based fallback strategies
         const alternatives = [
           `text="${step.textContent}"`,
-          `button:has-text("${step.textContent}")`,
-          `a:has-text("${step.textContent}")`,
+          `${step.elementType}:has-text("${step.textContent}")`,
           `input[placeholder*="${step.textContent}" i]`,
-          `[aria-label*="${step.textContent}" i]`
+          `[aria-label*="${step.textContent}" i]`,
+          `[title*="${step.textContent}" i]`
         ];
 
         for (const altSelector of alternatives) {
           try {
             const locator = this.page.locator(altSelector).first();
-            const count = await locator.count();
-            if (count > 0 && await locator.isVisible()) {
-              logger.info(`Found element using alternative: ${altSelector}`);
-              return await this.executeStepWithLocator(step, locator);
-            }
+
+            // Wait for element with this alternative selector
+            await locator.waitFor({ state: 'visible', timeout: 3000 });
+
+            logger.info(`✅ Found element using alternative: ${altSelector}`);
+            return await this.executeStepWithLocator(step, locator);
           } catch (e2) {
+            // Try next alternative
             continue;
           }
         }
@@ -744,18 +908,23 @@ class AutonomousCrawler {
         break;
 
       case 'fill':
-        let fillValue = step.value || 'test data';
+        let fillValue = step.value;
 
+        // Handle credential placeholders
         if (fillValue === '{auth_username}' && this.testConfig.auth_username) {
-          logger.info(`Substituting {auth_username} with configured username: ${this.testConfig.auth_username}`);
+          logger.info(`Substituting {auth_username} with configured username`);
           fillValue = this.testConfig.auth_username;
         } else if (fillValue === '{auth_password}' && this.testConfig.auth_password) {
           logger.info(`Substituting {auth_password} with configured password`);
           fillValue = this.testConfig.auth_password;
         } else if (fillValue === '{auth_username}' || fillValue === '{auth_password}') {
           logger.warn(`Placeholder ${fillValue} found but no credentials configured!`);
-          logger.warn(`testConfig.auth_username: ${this.testConfig.auth_username}`);
-          logger.warn(`testConfig.auth_password: ${this.testConfig.auth_password ? '***' : 'null'}`);
+        }
+
+        // If no value provided, generate intelligent test data based on field attributes
+        if (!fillValue) {
+          fillValue = this.generateIntelligentTestData(selector, step.textContent, step.elementType);
+          logger.info(`Generated intelligent test data for ${selector}: ${fillValue}`);
         }
 
         await this.smartFill(this.page, selector, fillValue);
@@ -860,6 +1029,12 @@ class AutonomousCrawler {
    */
   async enqueueUrl(url, depth, fromPageId, scenarioId, priority = 'medium', requiredSteps = []) {
     try {
+      // Strict depth check: don't enqueue if target depth exceeds max_depth
+      if (!this.canEnqueueAtDepth(depth)) {
+        logger.info(`⏭️ Skipping enqueue of ${url} - depth ${depth} exceeds max_depth ${this.testConfig.max_depth}`);
+        return;
+      }
+
       if (this.visitedUrls.has(url)) {
         return;
       }
@@ -1003,7 +1178,22 @@ class AutonomousCrawler {
         : [];
       logger.info(`  Required steps from base URL: ${requiredSteps.length}`);
 
-      const navigator = new PathNavigator(browser.page);
+      // Pass credentials to PathNavigator for auth placeholder substitution
+      const credentials = this.testConfig.credentials ? (() => {
+        try {
+          const decrypted = decrypt(this.testConfig.credentials);
+          const parsed = JSON.parse(decrypted);
+          return {
+            username: parsed.username || parsed.email || this.testConfig.auth_username,
+            password: parsed.password || this.testConfig.auth_password
+          };
+        } catch (error) {
+          logger.warn(`Failed to decrypt credentials for PathNavigator: ${error.message}`);
+          return null;
+        }
+      })() : null;
+
+      const navigator = new PathNavigator(browser.page, credentials);
 
       if (requiredSteps.length > 0) {
         await navigator.executeSteps(requiredSteps);
@@ -1272,8 +1462,9 @@ class AutonomousCrawler {
   }
 
   async discoverAndEnqueueLinks(page, pageId, currentUrl, analysis, depth, parentSteps) {
-    if (depth + 1 > this.testConfig.max_depth) {
-      logger.info(`  ⏭️ Skipping link discovery - max depth reached`);
+    // Check if current page is at a depth that can discover new pages
+    if (!this.canDiscoverFromDepth(depth)) {
+      logger.info(`  ⏭️ Skipping link discovery - page at depth ${depth} (max_depth: ${this.testConfig.max_depth})`);
       return;
     }
 
@@ -1336,9 +1527,110 @@ class AutonomousCrawler {
         }
 
         await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-        await page.waitForTimeout(1000);
+
+        // WAIT LONGER for modal animations
+        logger.info(`    ⏳ Waiting 3 seconds for potential modal to fully render...`);
+        await page.waitForTimeout(3000);
 
         const endUrl = page.url();
+
+        // CRITICAL: Check if clicking opened a login modal (URL stays the same but modal appears)
+        if (endUrl === startUrl && this.testConfig.credentials) {
+          logger.info(`    🔎 Checking for login modal after clicking "${text}"...`);
+          logger.info(`    URL stayed same: ${startUrl}, has credentials: ${!!this.testConfig.credentials}`);
+
+          // Check for ANY input fields that might be password fields
+          const allInputs = await page.$$('input');
+          logger.info(`    Total input elements on page: ${allInputs.length}`);
+
+          // Check for modals/dialogs
+          const modalCount = await page.locator('[role="dialog"], [class*="modal"], [class*="Modal"]').count();
+          logger.info(`    Modal/dialog elements: ${modalCount}`);
+
+          // AGGRESSIVE CHECK: Check if password field EXISTS in HTML (regardless of visibility)
+          const passwordFieldCount = await page.locator('input[type="password"]').count();
+          logger.info(`    Password field count in HTML: ${passwordFieldCount}`);
+
+          // If password field exists in HTML, wait for it to become visible
+          let hasPasswordField = false;
+          if (passwordFieldCount > 0) {
+            logger.info(`    🎯 Password field found in HTML - waiting for it to become visible...`);
+
+            try {
+              // Wait up to 5 seconds for password field to become visible
+              await page.locator('input[type="password"]').first().waitFor({
+                state: 'visible',
+                timeout: 5000
+              });
+              hasPasswordField = true;
+              logger.info(`    ✅ Password field is now visible!`);
+            } catch (waitError) {
+              logger.warn(`    ⚠️ Password field exists in HTML but did not become visible within 5s: ${waitError.message}`);
+
+              // Try checking if it's attached and enabled even if not "visible"
+              const isAttached = await page.locator('input[type="password"]').first().isAttached().catch(() => false);
+              const isEnabled = await page.locator('input[type="password"]').first().isEnabled().catch(() => false);
+              logger.info(`    Password field attached: ${isAttached}, enabled: ${isEnabled}`);
+
+              // If it's attached and enabled, treat it as usable even if not "visible"
+              if (isAttached && isEnabled) {
+                logger.info(`    🔓 Password field is attached and enabled - will attempt to use it`);
+                hasPasswordField = true;
+              }
+            }
+          } else {
+            logger.info(`    ℹ️ No password field found in HTML after clicking`);
+          }
+
+          if (hasPasswordField) {
+            logger.info(`    🔍 Password field detected after clicking "${text}" - checking for login form...`);
+
+            // Re-analyze page to get current interactive elements (including modal)
+            const screenshot = await page.screenshot({ encoding: 'base64', fullPage: false });
+            const pageSource = await page.content();
+
+            const updatedAnalysis = await this.visionIdentifier.identifyInteractiveElements(
+              screenshot,
+              pageSource,
+              endUrl
+            );
+
+            // Ensure interactiveElements is always an array
+            if (!updatedAnalysis.interactiveElements || !Array.isArray(updatedAnalysis.interactiveElements)) {
+              updatedAnalysis.interactiveElements = [];
+            }
+
+            // Check if a login form is now visible
+            const isLoginVisible = await this.detectLoginPage(
+              page,
+              updatedAnalysis.pageType,
+              updatedAnalysis.screenName,
+              updatedAnalysis.interactiveElements
+            );
+
+            if (isLoginVisible) {
+              logger.info(`    🔐 Login modal detected during link discovery - attempting authentication`);
+              const loginSuccess = await this.handleLoginForm(page, updatedAnalysis.interactiveElements);
+
+              if (loginSuccess) {
+                logger.info(`    ✅ Login successful via modal during link discovery`);
+                await page.waitForTimeout(2000); // Wait for post-login redirect/state change
+
+                // Check if login redirected us to a new page
+                const afterLoginUrl = page.url();
+                if (afterLoginUrl !== startUrl && !this.visitedUrls.has(afterLoginUrl)) {
+                  logger.info(`    🎯 Login redirected to new page: ${afterLoginUrl}`);
+                  const clickStep = PathNavigator.createClickStep(selector, text);
+                  const newSteps = PathNavigator.buildStepSequence(parentSteps, clickStep);
+                  await this.enqueueUrl(afterLoginUrl, depth + 1, pageId, null, 'high', newSteps);
+                  continue; // Skip the navigation back, we're on a new page
+                }
+              } else {
+                logger.warn(`    ⚠️ Login attempt in modal failed during link discovery`);
+              }
+            }
+          }
+        }
 
         if (endUrl !== startUrl && !this.visitedUrls.has(endUrl)) {
           logger.info(`    ✅ Discovered new URL: ${endUrl}`);
@@ -1408,108 +1700,207 @@ class AutonomousCrawler {
 
   /**
    * Detect if this is a login/authentication page
+   * Works language-independently by focusing on input types and form structure
+   * IMPORTANT: Only detects login if password field is VISIBLE on the page
    */
-  detectLoginPage(pageType, screenName, elements) {
-    const pageTypeLower = (pageType || '').toLowerCase();
-    const screenNameLower = (screenName || '').toLowerCase();
+  async detectLoginPage(page, pageType, screenName, elements) {
+    const pageTypeLower = (pageType || '').toString().toLowerCase();
+    const screenNameLower = (screenName || '').toString().toLowerCase();
 
-    // Check page type and screen name
+    // Safety check: ensure elements is an array
+    if (!elements || !Array.isArray(elements)) {
+      logger.warn(`detectLoginPage: elements is not an array: ${typeof elements}`);
+      return false;
+    }
+
+    // Language-independent detection: Look for password field (most reliable)
+    const passwordElements = elements.filter(el =>
+      el.element_type === 'input' &&
+      (el.attributes?.type === 'password' ||
+       el.attributes?.name?.toLowerCase().includes('pass') ||
+       el.attributes?.id?.toLowerCase().includes('pass'))
+    );
+
+    // If no password field elements found in HTML, definitely not a login form
+    if (passwordElements.length === 0) {
+      return false;
+    }
+
+    // CRITICAL: Check if ANY password field is actually VISIBLE on the page
+    let hasVisiblePasswordField = false;
+    for (const pwdEl of passwordElements) {
+      try {
+        const isVisible = await page.locator(pwdEl.selector).isVisible({ timeout: 1000 });
+        if (isVisible) {
+          hasVisiblePasswordField = true;
+          logger.info(`  ✅ Found visible password field: ${pwdEl.selector}`);
+          break;
+        }
+      } catch (e) {
+        // Element not found or not visible, continue checking others
+        continue;
+      }
+    }
+
+    if (!hasVisiblePasswordField) {
+      logger.info(`  ⏭️ Password fields found in HTML but none are visible - not a login page`);
+      return false;
+    }
+
+    // Check page type and screen name (supports English keywords)
     if (pageTypeLower.includes('login') || pageTypeLower.includes('auth') ||
         pageTypeLower.includes('signin') || pageTypeLower.includes('sign-in') ||
         screenNameLower.includes('login') || screenNameLower.includes('sign in')) {
+      logger.info(`  ✅ Login page detected by page type/screen name`);
       return true;
     }
 
-    // Check for password field + submit button combination
-    const hasPasswordField = elements.some(el =>
-      el.element_type === 'input' &&
-      (el.attributes?.type === 'password' ||
-       el.text_content?.toLowerCase().includes('password'))
-    );
-
-    const hasEmailOrUsername = elements.some(el =>
+    // Look for text/email input field (language-independent)
+    const hasTextInput = elements.some(el =>
       el.element_type === 'input' &&
       (el.attributes?.type === 'email' ||
-       el.attributes?.type === 'text' &&
-       (el.text_content?.toLowerCase().includes('email') ||
-        el.text_content?.toLowerCase().includes('username')))
+       el.attributes?.type === 'text' ||
+       el.attributes?.name?.toLowerCase().includes('user') ||
+       el.attributes?.name?.toLowerCase().includes('email') ||
+       el.attributes?.name?.toLowerCase().includes('login') ||
+       el.attributes?.id?.toLowerCase().includes('user') ||
+       el.attributes?.id?.toLowerCase().includes('email'))
     );
 
+    // Look for any submit button or button element
     const hasSubmitButton = elements.some(el =>
-      (el.element_type === 'button' || el.element_type === 'input') &&
-      (el.text_content?.toLowerCase().includes('login') ||
-       el.text_content?.toLowerCase().includes('sign in') ||
-       el.attributes?.type === 'submit')
+      (el.element_type === 'button' ||
+       el.element_type === 'input' && el.attributes?.type === 'submit') ||
+      (el.attributes?.type === 'submit')
     );
 
-    return hasPasswordField && hasEmailOrUsername && hasSubmitButton;
+    // Login form = visible password field + text input + button
+    const isLoginForm = hasVisiblePasswordField && hasTextInput && hasSubmitButton;
+
+    if (isLoginForm) {
+      logger.info(`🔐 Login form detected: password=${hasVisiblePasswordField}, text=${hasTextInput}, submit=${hasSubmitButton}`);
+    }
+
+    return isLoginForm;
   }
 
   /**
    * Attempt to fill and submit a login form
+   * Works language-independently by using input types and attributes
+   * IMPORTANT: Only uses VISIBLE elements to avoid interacting with hidden forms
    */
   async handleLoginForm(page, elements) {
     try {
-      const credentials = JSON.parse(this.testConfig.credentials);
+      // Decrypt and parse credentials
+      const credentials = JSON.parse(decrypt(this.testConfig.credentials));
 
-      // Find username/email field
-      const usernameField = elements.find(el =>
+      // Safety check: ensure elements is an array
+      if (!elements || !Array.isArray(elements)) {
+        logger.error(`handleLoginForm: elements is not an array: ${typeof elements}`);
+        return false;
+      }
+
+      // STEP 1: Filter to only VISIBLE elements to avoid hidden forms
+      logger.info(`  🔍 Filtering ${elements.length} elements to only visible ones...`);
+      const visibleElements = [];
+
+      for (const el of elements) {
+        try {
+          const isVisible = await page.locator(el.selector).isVisible({ timeout: 1000 });
+          if (isVisible) {
+            visibleElements.push(el);
+          }
+        } catch (e) {
+          // Element not found or not visible, skip it
+          continue;
+        }
+      }
+
+      logger.info(`  ✅ Found ${visibleElements.length} visible elements (filtered from ${elements.length})`);
+
+      // STEP 2: Find password field from VISIBLE elements only
+      const passwordField = visibleElements.find(el =>
+        el.element_type === 'input' &&
+        (el.attributes?.type === 'password' ||
+         el.attributes?.name?.toLowerCase().includes('pass') ||
+         el.attributes?.id?.toLowerCase().includes('pass'))
+      );
+
+      // STEP 3: Find username/email field from VISIBLE elements only
+      const usernameField = visibleElements.find(el =>
         el.element_type === 'input' &&
         (el.attributes?.type === 'email' ||
          el.attributes?.type === 'text' ||
          el.attributes?.name?.toLowerCase().includes('user') ||
          el.attributes?.name?.toLowerCase().includes('email') ||
-         el.text_content?.toLowerCase().includes('email') ||
-         el.text_content?.toLowerCase().includes('username'))
+         el.attributes?.name?.toLowerCase().includes('login') ||
+         el.attributes?.id?.toLowerCase().includes('user') ||
+         el.attributes?.id?.toLowerCase().includes('email'))
       );
 
-      // Find password field
-      const passwordField = elements.find(el =>
-        el.element_type === 'input' &&
-        (el.attributes?.type === 'password' ||
-         el.attributes?.name?.toLowerCase().includes('pass'))
+      // STEP 4: Find submit button from VISIBLE elements only
+      // Prefer type=submit, then any button element
+      let submitButton = visibleElements.find(el =>
+        (el.element_type === 'input' && el.attributes?.type === 'submit') ||
+        (el.element_type === 'button' && el.attributes?.type === 'submit')
       );
 
-      // Find submit button
-      const submitButton = elements.find(el =>
-        (el.element_type === 'button' || el.element_type === 'input') &&
-        (el.text_content?.toLowerCase().includes('login') ||
-         el.text_content?.toLowerCase().includes('sign in') ||
-         el.attributes?.type === 'submit')
-      );
+      // If no submit type, just find any button near the form
+      if (!submitButton) {
+        submitButton = visibleElements.find(el => el.element_type === 'button');
+      }
 
-      if (!usernameField || !passwordField || !submitButton) {
-        logger.warn(`Missing login form elements: username=${!!usernameField}, password=${!!passwordField}, submit=${!!submitButton}`);
+      if (!usernameField || !passwordField) {
+        logger.warn(`Missing visible login form fields: username=${!!usernameField}, password=${!!passwordField}, submit=${!!submitButton}`);
         return false;
       }
 
-      logger.info(`  📝 Filling username field: ${usernameField.selector}`);
-      await page.fill(usernameField.selector, credentials.username || credentials.email || 'test@example.com');
+      logger.info(`  📝 Found visible login fields:`);
+      logger.info(`     Username: ${usernameField.selector} (${usernameField.attributes?.name || usernameField.attributes?.id || 'no-name'})`);
+      logger.info(`     Password: ${passwordField.selector} (${passwordField.attributes?.name || passwordField.attributes?.id || 'no-name'})`);
+      if (submitButton) {
+        logger.info(`     Submit: ${submitButton.selector} (${submitButton.text_content || 'no-text'})`);
+      }
 
-      await page.waitForTimeout(500);
+      // Fill username
+      logger.info(`  📝 Filling username field with configured credentials`);
+      await this.smartFill(page, usernameField.selector, credentials.username || credentials.email || this.testConfig.auth_username);
 
-      logger.info(`  📝 Filling password field: ${passwordField.selector}`);
-      await page.fill(passwordField.selector, credentials.password || 'password123');
+      await page.waitForTimeout(800);
 
-      await page.waitForTimeout(500);
+      // Fill password
+      logger.info(`  📝 Filling password field with configured credentials`);
+      await this.smartFill(page, passwordField.selector, credentials.password || this.testConfig.auth_password);
 
-      logger.info(`  🖱️ Clicking submit button: ${submitButton.selector}`);
-      await Promise.all([
-        page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}),
-        page.click(submitButton.selector)
-      ]);
+      await page.waitForTimeout(800);
 
-      await page.waitForTimeout(2000);
+      // Submit form
+      if (submitButton) {
+        logger.info(`  🖱️ Clicking submit button`);
+        await Promise.all([
+          page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {}),
+          this.smartClick(page, submitButton.selector)
+        ]);
+      } else {
+        // No button found - try pressing Enter on password field
+        logger.info(`  ⌨️ No submit button found - pressing Enter on password field`);
+        await page.locator(passwordField.selector).press('Enter');
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      }
 
-      // Check if login was successful (URL changed or no error messages)
+      await page.waitForTimeout(3000);
+
+      // Check if login was successful
       const currentUrl = page.url();
-      const hasErrorMessage = await page.locator('text=/error|invalid|incorrect|failed/i').count() > 0;
 
-      if (!hasErrorMessage) {
-        logger.info(`  ✅ No error messages detected, assuming login successful`);
+      // Check for password field still visible (login failed)
+      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
+
+      if (!passwordStillVisible) {
+        logger.info(`  ✅ Login successful - password field no longer visible`);
         return true;
       } else {
-        logger.warn(`  ⚠️ Error message detected on page after login attempt`);
+        logger.warn(`  ⚠️ Login may have failed - password field still visible`);
         return false;
       }
 
@@ -1622,25 +2013,20 @@ class AutonomousCrawler {
   }
 
   /**
-   * Cleanup resources
+   * Handle popups/modals - DEPRECATED: Only kept for cookie consent
+   * Let LLM identify and handle login modals, dialogs, etc. naturally
    */
   async handlePopupsAndModals(page) {
     try {
-      logger.info('Checking for popups/modals');
+      logger.info('Minimal popup handling - cookies only');
 
       // Wait a moment for popups to appear
       await page.waitForTimeout(1500);
 
-      // Try to dismiss modals
-      await this.dismissModals(page);
-
-      // Try to accept cookies
+      // Only accept cookies automatically (they block content)
       await this.acceptCookies(page);
 
-      // Try to dismiss notifications
-      await this.dismissNotifications(page);
-
-      logger.info('Completed popup/modal handling');
+      logger.info('Completed minimal popup handling');
     } catch (error) {
       logger.debug(`Popup handling: ${error.message}`);
     }
@@ -1685,29 +2071,53 @@ class AutonomousCrawler {
   }
 
   async acceptCookies(page) {
-    const cookieSelectors = [
-      'button:has-text("Accept All")',
-      'button:has-text("Accept")',
-      'button:has-text("Allow All")',
-      '[class*="cookie"] button:has-text("Accept")',
-      '[id*="cookie-accept"]'
-    ];
-
-    for (const selector of cookieSelectors) {
-      try {
-        const element = await page.$(selector);
-        if (element) {
-          const isVisible = await element.isVisible().catch(() => false);
-          if (isVisible) {
-            await element.click({ timeout: 2000 }).catch(() => {});
-            logger.info(`Accepted cookies using: ${selector}`);
-            await page.waitForTimeout(1000);
-            return;
-          }
-        }
-      } catch (error) {
-        continue;
+    try {
+      // First check if there's a login form visible - if so, don't touch cookies yet
+      const hasVisiblePasswordField = await page.locator('input[type="password"]').isVisible().catch(() => false);
+      if (hasVisiblePasswordField) {
+        logger.info(`⏭️ Skipping cookie acceptance - login form is visible`);
+        return;
       }
+
+      const cookieSelectors = [
+        'button:has-text("Accept All")',
+        'button:has-text("Accept")',
+        'button:has-text("Allow All")',
+        'button:has-text("OK")',
+        '[class*="cookie"] button:has-text("Accept")',
+        '[id*="cookie-accept"]',
+        '[id*="cookie"] button[type="button"]'
+      ];
+
+      for (const selector of cookieSelectors) {
+        try {
+          const element = await page.locator(selector).first();
+          const count = await element.count();
+
+          if (count > 0) {
+            const isVisible = await element.isVisible().catch(() => false);
+            if (isVisible) {
+              // Check if this button is inside a modal with a form
+              const parentModal = await element.locator('xpath=ancestor::*[contains(@class, "modal") or contains(@role, "dialog")]').count();
+              const hasFormInModal = parentModal > 0 && await page.locator('input[type="password"]').count() > 0;
+
+              if (hasFormInModal) {
+                logger.info(`⏭️ Skipping cookie button - it's in a modal with a login form`);
+                continue;
+              }
+
+              await element.click({ timeout: 2000 }).catch(() => {});
+              logger.info(`🍪 Accepted cookies using: ${selector}`);
+              await page.waitForTimeout(1000);
+              return;
+            }
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+    } catch (error) {
+      logger.debug(`Cookie acceptance skipped: ${error.message}`);
     }
   }
 
@@ -1737,22 +2147,138 @@ class AutonomousCrawler {
     }
   }
 
+  /**
+   * Generate intelligent test data based on field selector, text content, and type
+   * Uses field attributes to determine appropriate test data
+   */
+  generateIntelligentTestData(selector, textContent, elementType) {
+    const selectorLower = (selector || '').toLowerCase();
+    const textLower = (textContent || '').toLowerCase();
+    const combined = selectorLower + ' ' + textLower;
+
+    // Email fields
+    if (combined.includes('email') || combined.includes('e-mail')) {
+      return 'test@example.com';
+    }
+
+    // Password fields
+    if (combined.includes('password') || combined.includes('pwd') || combined.includes('pass')) {
+      return 'TestPassword123!';
+    }
+
+    // Name fields
+    if (combined.includes('firstname') || combined.includes('first_name') || combined.includes('fname')) {
+      return 'John';
+    }
+    if (combined.includes('lastname') || combined.includes('last_name') || combined.includes('lname')) {
+      return 'Doe';
+    }
+    if (combined.includes('fullname') || combined.includes('full_name') || combined.includes('name')) {
+      return 'John Doe';
+    }
+
+    // Phone fields
+    if (combined.includes('phone') || combined.includes('mobile') || combined.includes('tel')) {
+      return '+1-555-0123';
+    }
+
+    // Address fields
+    if (combined.includes('address') || combined.includes('street')) {
+      return '123 Main Street';
+    }
+    if (combined.includes('city')) {
+      return 'New York';
+    }
+    if (combined.includes('zip') || combined.includes('postal')) {
+      return '10001';
+    }
+    if (combined.includes('country')) {
+      return 'United States';
+    }
+
+    // Date fields
+    if (combined.includes('date') || combined.includes('dob') || combined.includes('birthday')) {
+      return '1990-01-15';
+    }
+
+    // Age/Number fields
+    if (combined.includes('age')) {
+      return '25';
+    }
+    if (combined.includes('quantity') || combined.includes('qty') || combined.includes('amount')) {
+      return '10';
+    }
+
+    // URL fields
+    if (combined.includes('url') || combined.includes('website')) {
+      return 'https://example.com';
+    }
+
+    // Search fields
+    if (combined.includes('search') || combined.includes('query')) {
+      return 'test search';
+    }
+
+    // Company/Organization
+    if (combined.includes('company') || combined.includes('organization')) {
+      return 'Test Company Inc';
+    }
+
+    // Username
+    if (combined.includes('username') || combined.includes('user_name')) {
+      return 'testuser123';
+    }
+
+    // Message/Comment/Description fields (textarea)
+    if (elementType === 'textarea' || combined.includes('message') || combined.includes('comment') || combined.includes('description') || combined.includes('notes')) {
+      return 'This is a test message for form validation and submission testing.';
+    }
+
+    // Generic text input - use a generic but meaningful value
+    if (elementType === 'input') {
+      return 'Test Input';
+    }
+
+    // Default fallback
+    return 'Test Data';
+  }
+
   async smartClick(page, selector) {
+    // CRITICAL: Check if element is actually clickable (not behind a modal/overlay)
     try {
-      await page.click(selector, { timeout: 3000 });
-      logger.info(`Clicked: ${selector}`);
+      const element = page.locator(selector).first();
+
+      // Wait for element to be attached and visible with extended timeout for dynamic content
+      await element.waitFor({ state: 'visible', timeout: 8000 });
+
+      // Check if element is enabled
+      const isEnabled = await element.isEnabled().catch(() => true);
+      if (!isEnabled) {
+        logger.warn(`Element is disabled but will attempt click: ${selector}`);
+      }
+
+      // Scroll element into view if needed
+      await element.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {
+        logger.debug(`Could not scroll element into view: ${selector}`);
+      });
+
+      // Try normal click first (respects overlays)
+      await element.click({ timeout: 5000 });
+      logger.info(`✅ Clicked: ${selector}`);
       return true;
     } catch (error) {
-      logger.warn(`Standard click failed, trying alternatives...`);
+      logger.warn(`Standard click failed: ${error.message}, trying alternatives...`);
 
       try {
+        // Force click (ignores overlays) - use with caution
         await page.click(selector, { force: true, timeout: 3000 });
-        logger.info(`Force-clicked: ${selector}`);
+        logger.info(`⚠️ Force-clicked: ${selector}`);
         return true;
       } catch (e) {
         try {
+          // JS click as last resort
           await page.$eval(selector, el => el.click());
-          logger.info(`JS-clicked: ${selector}`);
+          logger.info(`⚠️ JS-clicked: ${selector}`);
           await page.waitForTimeout(500);
           return true;
         } catch (e2) {
@@ -1763,10 +2289,25 @@ class AutonomousCrawler {
   }
 
   async smartFill(page, selector, value) {
+    // CRITICAL: First verify the element is actually visible
+    try {
+      const element = page.locator(selector).first();
+
+      // Wait for element with extended timeout for dynamic forms
+      await element.waitFor({ state: 'visible', timeout: 8000 });
+
+      logger.info(`✅ Verified element is visible: ${selector}`);
+    } catch (e) {
+      logger.error(`Element not visible before fill: ${e.message}`);
+      throw new Error(`Cannot fill - element not visible: ${selector}`);
+    }
+
     const initialDialogCount = await page.locator('[role="dialog"], [class*="modal"], [class*="dropdown"]').count();
 
+    // Click the field to focus it (but ensure we're clicking the visible one)
     try {
-      await page.click(selector, { timeout: 2000 });
+      const element = await page.locator(selector).first();
+      await element.click({ timeout: 2000 });
       await page.waitForTimeout(500);
       logger.info(`Clicked field before filling: ${selector}`);
     } catch (e) {
@@ -1800,13 +2341,20 @@ class AutonomousCrawler {
       }
     }
 
+    // Try to fill using locator (respects visibility)
     try {
-      await page.fill(selector, value, { timeout: 3000 });
+      const element = await page.locator(selector).first();
+      await element.fill(value, { timeout: 3000 });
       logger.info(`Filled: ${selector} = ${value}`);
       return true;
     } catch (e) {
+      logger.warn(`Direct fill failed: ${e.message}, trying type...`);
+
+      // Fallback to click + type
       try {
-        await page.click(selector, { timeout: 2000 });
+        const element = await page.locator(selector).first();
+        await element.click({ timeout: 2000 });
+        await element.clear({ timeout: 1000 }).catch(() => {}); // Clear first
         await page.type(selector, value, { delay: 50 });
         logger.info(`Typed: ${selector} = ${value}`);
         return true;
@@ -1817,8 +2365,25 @@ class AutonomousCrawler {
   }
 
   async smartSelect(page, selector, value) {
+    // CRITICAL: First verify the element is actually visible
     try {
-      await page.click(selector, { timeout: 2000 });
+      const element = await page.locator(selector).first();
+      const isVisible = await element.isVisible({ timeout: 3000 });
+
+      if (!isVisible) {
+        throw new Error(`Element not visible: ${selector}`);
+      }
+
+      logger.info(`✅ Verified select element is visible: ${selector}`);
+    } catch (e) {
+      logger.error(`Element not visible before select: ${e.message}`);
+      throw new Error(`Cannot select - element not visible: ${selector}`);
+    }
+
+    // Try custom dropdown/select component
+    try {
+      const element = await page.locator(selector).first();
+      await element.click({ timeout: 2000 });
       await page.waitForTimeout(500);
       logger.info(`Clicked select element: ${selector}`);
 
@@ -1844,6 +2409,7 @@ class AutonomousCrawler {
       logger.debug(`Custom select handling failed: ${e.message}`);
     }
 
+    // Try standard HTML select
     try {
       if (value) {
         await page.selectOption(selector, value, { timeout: 3000 });

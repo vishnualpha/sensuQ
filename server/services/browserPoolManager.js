@@ -24,18 +24,21 @@ class BrowserPoolManager {
   }
 
   async launchBrowser() {
-    const StealthConfig = require('../utils/stealthConfig');
-
     const browser = await chromium.launch({
       headless: false,
-      args: StealthConfig.getBrowserArgs()
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
     });
 
-    const context = await browser.newContext(StealthConfig.getContextOptions());
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
 
     const page = await context.newPage();
-
-    await StealthConfig.applyStealthScripts(page);
 
     const browserId = crypto.randomUUID();
 
@@ -85,8 +88,6 @@ class BrowserPoolManager {
 
   async resetBrowser(browser) {
     try {
-      const StealthConfig = require('../utils/stealthConfig');
-
       await browser.context.clearCookies();
 
       try {
@@ -102,10 +103,7 @@ class BrowserPoolManager {
         logger.warn(`Could not clear storage for browser ${browser.id}: ${evalError.message}`);
       }
 
-      // Reapply stealth scripts after reset
-      await StealthConfig.applyStealthScripts(browser.page);
-
-      logger.info(`🔄 Browser ${browser.id} reset to clean state with stealth`);
+      logger.info(`🔄 Browser ${browser.id} reset to clean state`);
     } catch (error) {
       logger.error(`Error resetting browser ${browser.id}: ${error.message}`);
       const newBrowser = await this.launchBrowser();

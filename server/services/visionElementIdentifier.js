@@ -36,6 +36,10 @@ class VisionElementIdentifier {
       logger.info(`Analyzing page with vision LLM: ${url}`);
 
       const response = await this.testGenerator.callLLM(prompt, screenshotBase64);
+
+      // Log first 500 chars of response for debugging
+      logger.debug(`LLM response preview: ${response.substring(0, 500)}...`);
+
       const analysis = extractJSON(response);
 
       logger.info(`Vision LLM identified ${analysis.interactiveElements?.length || 0} interactive elements`);
@@ -48,13 +52,115 @@ class VisionElementIdentifier {
       };
     } catch (error) {
       logger.error(`Vision LLM analysis failed: ${error.message}`);
-      return {
-        screenName: this.generateScreenNameFromUrl(url),
-        pageType: 'unknown',
-        interactiveElements: [],
-        recommendations: [`LLM analysis failed: ${error.message}`]
-      };
+      logger.warn('Attempting fallback HTML parsing to extract basic elements');
+
+      // Fallback: Parse HTML directly to extract basic interactive elements
+      try {
+        const fallbackElements = this.extractBasicElementsFromHTML(pageSource);
+        logger.info(`Fallback HTML parsing found ${fallbackElements.length} basic elements`);
+
+        return {
+          screenName: this.generateScreenNameFromUrl(url),
+          pageType: 'unknown',
+          interactiveElements: fallbackElements,
+          recommendations: [`LLM analysis failed: ${error.message}`, 'Using basic HTML parsing fallback']
+        };
+      } catch (fallbackError) {
+        logger.error(`Fallback HTML parsing also failed: ${fallbackError.message}`);
+        return {
+          screenName: this.generateScreenNameFromUrl(url),
+          pageType: 'unknown',
+          interactiveElements: [],
+          recommendations: [`LLM analysis failed: ${error.message}`, 'Fallback parsing also failed']
+        };
+      }
     }
+  }
+
+  /**
+   * Fallback: Extract basic interactive elements from HTML when LLM fails
+   */
+  extractBasicElementsFromHTML(html) {
+    const elements = [];
+    let elementId = 0;
+
+    // Extract links
+    const linkRegex = /<a\s+([^>]*?)>(.*?)<\/a>/gi;
+    let match;
+    while ((match = linkRegex.exec(html)) !== null) {
+      const attrs = this.parseAttributes(match[1]);
+      const text = match[2].replace(/<[^>]*>/g, '').trim();
+
+      if (attrs.href) {
+        elements.push({
+          element_type: 'a',
+          selector: this.buildSelectorFromAttributes(attrs, 'a'),
+          text_content: text.substring(0, 100),
+          attributes: attrs,
+          interaction_priority: 'medium',
+          identified_by: 'vision_llm'
+        });
+      }
+    }
+
+    // Extract buttons
+    const buttonRegex = /<button\s+([^>]*?)>(.*?)<\/button>/gi;
+    while ((match = buttonRegex.exec(html)) !== null) {
+      const attrs = this.parseAttributes(match[1]);
+      const text = match[2].replace(/<[^>]*>/g, '').trim();
+
+      elements.push({
+        element_type: 'button',
+        selector: this.buildSelectorFromAttributes(attrs, 'button'),
+        text_content: text.substring(0, 100),
+        attributes: attrs,
+        interaction_priority: 'medium',
+        identified_by: 'vision_llm'
+      });
+    }
+
+    // Extract input fields
+    const inputRegex = /<input\s+([^>]*?)(?:\/?>|><\/input>)/gi;
+    while ((match = inputRegex.exec(html)) !== null) {
+      const attrs = this.parseAttributes(match[1]);
+
+      elements.push({
+        element_type: 'input',
+        selector: this.buildSelectorFromAttributes(attrs, 'input'),
+        text_content: attrs.placeholder || attrs.value || '',
+        attributes: attrs,
+        interaction_priority: attrs.type === 'submit' ? 'high' : 'medium',
+        identified_by: 'vision_llm'
+      });
+    }
+
+    logger.info(`HTML fallback extracted: ${elements.length} elements`);
+    return elements;
+  }
+
+  /**
+   * Parse HTML attributes from attribute string
+   */
+  parseAttributes(attrString) {
+    const attrs = {};
+    const attrRegex = /(\w+(?:-\w+)*)=["']([^"']*)["']/g;
+    let match;
+
+    while ((match = attrRegex.exec(attrString)) !== null) {
+      attrs[match[1]] = match[2];
+    }
+
+    return attrs;
+  }
+
+  /**
+   * Build CSS selector from attributes
+   */
+  buildSelectorFromAttributes(attrs, tagName) {
+    if (attrs.id) return `#${attrs.id}`;
+    if (attrs.name) return `${tagName}[name="${attrs.name}"]`;
+    if (attrs.class) return `.${attrs.class.split(' ')[0]}`;
+    return tagName;
   }
 
   cleanHtmlForAnalysis(html) {
@@ -68,54 +174,96 @@ class VisionElementIdentifier {
   buildVisionPrompt(url, pageSource) {
     const cleanedSource = this.cleanHtmlForAnalysis(pageSource);
 
-    return `Analyze this webpage to identify ALL interactive elements.
+    return `Find ALL interactive elements on this webpage.
 
 URL: ${url}
 
-TASK:
-1. Find ALL interactive elements: buttons, links, inputs, forms, dropdowns, navigation menus
-2. Look for nested elements (nav menus, dropdown items, modal buttons)
-3. For EACH element provide:
-   - Description and visible text
-   - Element type (use 'a' for links, 'button', 'input', 'select', etc.)
-   - ALL attributes (id, class, name, href, data-*, aria-*, role, type)
-   - Priority (high/medium/low)
-4. Screen name and page type
+=== WHAT TO FIND ===
+Find these interactive elements:
+- Links (including navigation menu links)
+- Buttons (including modal buttons, close buttons)
+- Input fields (text, email, password, etc.)
+- Dropdowns/Select menus
+- Checkboxes and radio buttons
+- Forms (including login forms in modals/popups)
+- Tabs and menu items
 
-HTML (up to 20KB):
+IMPORTANT: Look everywhere including:
+✓ Navigation bars and menus
+✓ Modals and popups
+✓ Nested elements inside divs
+✓ Login forms that appear in popups
+
+=== HTML SOURCE (20KB max) ===
 ${cleanedSource}
 
-Return ONLY valid JSON:
+=== INSTRUCTIONS ===
+
+For EACH interactive element, provide:
+1. What it does (brief description)
+2. Text shown on it
+3. Element type: Use exact HTML tag names
+   - 'a' for links
+   - 'button' for buttons
+   - 'input' for input fields
+   - 'select' for dropdowns
+   - 'textarea' for text areas
+4. ALL attributes (copy from HTML):
+   - id
+   - class
+   - name
+   - type (for inputs)
+   - href (for links - include full URL)
+   - aria-label
+   - data-testid
+   - role
+   - placeholder
+5. Priority:
+   - high: Login, signup, navigation, forms
+   - medium: Secondary buttons, filters
+   - low: Tooltips, help icons
+
+Also provide:
+- Screen name: A short descriptive name for this page
+- Page type: homepage, login, dashboard, form, or other
+- Testing recommendations: 1-3 suggestions
+
+=== OUTPUT FORMAT ===
+Return ONLY this JSON (no other text):
+
 {
-  "screenName": "A descriptive name for this screen",
-  "pageType": "page-type-classification",
+  "screenName": "descriptive name for screen",
+  "pageType": "homepage|login|dashboard|form|other",
   "interactiveElements": [
     {
-      "description": "What this element does",
-      "textContent": "Visible text on the element",
+      "description": "what this element does",
+      "textContent": "visible text on element",
       "elementType": "a|button|input|select|textarea",
       "attributes": {
-        "id": "element-id-if-available",
-        "class": "css-classes-if-available",
-        "name": "name-attribute-if-available",
-        "type": "type-attribute-for-inputs",
-        "href": "href-for-links",
-        "aria-label": "aria-label-if-available",
-        "data-testid": "test-id-if-available",
-        "role": "role-if-available"
+        "id": "element-id",
+        "class": "css-classes",
+        "name": "name-attr",
+        "type": "input-type",
+        "href": "full-url-for-links",
+        "aria-label": "aria-label",
+        "data-testid": "test-id",
+        "role": "role-attr",
+        "placeholder": "placeholder-text"
       },
       "priority": "high|medium|low"
     }
   ],
-  "recommendations": ["Testing recommendations"]
+  "recommendations": ["test suggestion 1", "test suggestion 2"]
 }
 
-CRITICAL:
-- Use HTML tag names: 'a' for links, 'button' for buttons
-- Include ALL attributes for each element
-- Include NESTED elements (nav items, menu links)
-- Include complete href values for links
-- Each element should have unique identifying attributes`;
+=== CRITICAL RULES ===
+✓ Use HTML tag names (a, button, input, select)
+✓ Include ALL attributes from HTML
+✓ Include nested elements (menu items, modal buttons)
+✓ Include complete href URLs for links
+✓ DO NOT skip any interactive elements
+
+Return ONLY valid JSON.`;
   }
 
   /**
@@ -124,17 +272,20 @@ CRITICAL:
   enhanceElementsWithSelectors(elements, pageSource) {
     return elements.map(element => {
       const selector = this.buildUniqueSelector(element, pageSource);
+      const text = element.textContent?.trim() || '';
 
       return {
         element_type: this.normalizeElementType(element.elementType),
         selector: selector,
-        text_content: element.textContent || '',
+        text_content: text,
         attributes: element.attributes || {},
         interaction_priority: element.priority || 'medium',
         identified_by: 'vision_llm',
         metadata: {
           description: element.description,
-          recommendations: element.recommendations || []
+          recommendations: element.recommendations || [],
+          // Store text for runtime fallback matching
+          fallback_text: text.length > 0 ? text : null
         }
       };
     });
@@ -158,23 +309,15 @@ CRITICAL:
   }
 
   /**
-   * Build unique selector - ALWAYS prefer text-based selectors for links
+   * Build unique selector - Use valid CSS and attribute selectors
    */
   buildUniqueSelector(element, pageSource) {
     const htmlElement = this.normalizeElementType(element.elementType);
     const attrs = element.attributes || {};
     const text = element.textContent?.trim() || '';
 
-    // For links with text, ALWAYS use text selector (most reliable)
-    // Even if ID exists, it might not be unique
-    if (htmlElement === 'a' && text && text.length >= 1) {
-      return `a:has-text("${this.escapeText(text)}")`;
-    }
-
-    // For buttons with text, use text selector
-    if (htmlElement === 'button' && text && text.length >= 1) {
-      return `button:has-text("${this.escapeText(text)}")`;
-    }
+    // NEVER use :has-text() - it's invalid CSS selector syntax
+    // Strategy: Prioritize stable, unique attributes over text
 
     // Strategy 1: ID (if unique)
     if (attrs.id && this.isUnique(pageSource, `id="${attrs.id}"`)) {
@@ -214,22 +357,46 @@ CRITICAL:
       }
     }
 
-    // Strategy 7: Text content for other elements
-    if (text && text.length >= 1) {
-      return `${htmlElement}:has-text("${this.escapeText(text)}")`;
+    // Strategy 7: Combine element type with class (if class is not dynamic)
+    if (attrs.class) {
+      const classes = attrs.class.split(' ').filter(c => !this.isDynamicClass(c));
+      if (classes.length > 0) {
+        const classSelector = `.${classes[0]}`;
+        if (this.isUnique(pageSource, `class="${classes[0]}"`)) {
+          return `${htmlElement}${classSelector}`;
+        }
+      }
     }
 
-    // Strategy 8: Form elements by type
+    // Strategy 8: Form elements by type + name combination
+    if (attrs.type && htmlElement === 'input' && attrs.name) {
+      return `input[type="${attrs.type}"][name="${attrs.name}"]`;
+    }
+
+    // Strategy 9: Form elements by type alone
     if (attrs.type && htmlElement === 'input') {
       return `input[type="${attrs.type}"]`;
     }
 
+    // Strategy 10: Role attribute
     if (attrs.role) {
       return `[role="${attrs.role}"]`;
     }
 
-    // Fallback
-    logger.warn(`Using generic selector for ${htmlElement}: "${text.substring(0, 30)}"`);
+    // Strategy 11: For links, use href if available
+    if (htmlElement === 'a' && attrs.href && attrs.href !== '#') {
+      const hrefPath = attrs.href.split('?')[0]; // Remove query params
+      return `a[href*="${hrefPath.substring(hrefPath.lastIndexOf('/') + 1)}"]`;
+    }
+
+    // Strategy 12: Generic element with first class
+    if (attrs.class) {
+      const firstClass = attrs.class.split(' ')[0];
+      return `${htmlElement}.${firstClass}`;
+    }
+
+    // Fallback - use element type, will need runtime text matching
+    logger.warn(`Using generic selector for ${htmlElement}: "${text.substring(0, 30)}" - may need text fallback at runtime`);
     return htmlElement;
   }
 

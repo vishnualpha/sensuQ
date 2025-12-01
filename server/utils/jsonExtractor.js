@@ -64,23 +64,80 @@ function extractJSON(text) {
   const startChar = cleanedText[startIndex];
   const endChar = startChar === '{' ? '}' : ']';
 
-  // Find matching closing bracket
+  // Find matching closing bracket, handling strings properly
   let depth = 0;
   let endIndex = -1;
+  let inString = false;
+  let escapeNext = false;
 
   for (let i = startIndex; i < cleanedText.length; i++) {
-    if (cleanedText[i] === startChar) depth++;
-    if (cleanedText[i] === endChar) {
-      depth--;
-      if (depth === 0) {
-        endIndex = i;
-        break;
+    const char = cleanedText[i];
+
+    // Handle escape sequences in strings
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+
+    // Toggle string state on quotes (not escaped)
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    // Only count brackets outside of strings
+    if (!inString) {
+      if (char === startChar) depth++;
+      if (char === endChar) {
+        depth--;
+        if (depth === 0) {
+          endIndex = i;
+          break;
+        }
       }
     }
   }
 
   if (endIndex === -1) {
-    throw new Error('Could not find matching closing bracket for JSON');
+    // Try to auto-complete the JSON if we're close to the end
+    logger.warn('Incomplete JSON detected - attempting to auto-complete');
+    const partialJson = cleanedText.substring(startIndex);
+
+    // Count how many closing brackets we need
+    depth = 0;
+    inString = false;
+    escapeNext = false;
+
+    for (let i = 0; i < partialJson.length; i++) {
+      const char = partialJson[i];
+      if (escapeNext) { escapeNext = false; continue; }
+      if (char === '\\') { escapeNext = true; continue; }
+      if (char === '"') { inString = !inString; continue; }
+      if (!inString) {
+        if (char === startChar) depth++;
+        if (char === endChar) depth--;
+      }
+    }
+
+    // Add missing closing brackets
+    let completedJson = partialJson;
+    if (inString) completedJson += '"'; // Close unclosed string
+    for (let i = 0; i < depth; i++) {
+      completedJson += endChar;
+    }
+
+    try {
+      const json = JSON.parse(completedJson);
+      logger.info('Successfully auto-completed and parsed incomplete JSON');
+      return json;
+    } catch (completionError) {
+      throw new Error('Could not find matching closing bracket for JSON and auto-completion failed');
+    }
   }
 
   const jsonString = cleanedText.substring(startIndex, endIndex + 1);

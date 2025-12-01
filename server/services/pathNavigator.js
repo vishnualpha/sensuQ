@@ -1,8 +1,15 @@
 const logger = require('../utils/logger');
 
 class PathNavigator {
-  constructor(page) {
+  constructor(page, credentials = null) {
     this.page = page;
+    this.credentials = credentials; // Store credentials for auth placeholder substitution
+
+    if (credentials) {
+      logger.info(`🔑 PathNavigator initialized with credentials: username=${credentials.username || credentials.email || 'NOT SET'}, password=${credentials.password ? '***SET***' : 'NOT SET'}`);
+    } else {
+      logger.info(`PathNavigator initialized without credentials`);
+    }
   }
 
   async executeSteps(steps) {
@@ -39,12 +46,38 @@ class PathNavigator {
         break;
 
       case 'fill':
-        await this.page.fill(step.selector, step.value, { timeout: 10000 });
+        // Substitute auth placeholders if credentials are available
+        let fillValue = step.value || '';
+        if (this.credentials) {
+          if (fillValue === '{auth_username}') {
+            fillValue = this.credentials.username || this.credentials.email;
+            logger.info(`  🔑 Substituting {auth_username} with: ${fillValue}`);
+          } else if (fillValue === '{auth_password}') {
+            fillValue = this.credentials.password;
+            logger.info(`  🔑 Substituting {auth_password} with configured password`);
+          }
+        } else if (fillValue.includes('{auth_')) {
+          logger.warn(`  ⚠️ Found placeholder "${fillValue}" but no credentials available for substitution!`);
+        }
+        await this.page.fill(step.selector, fillValue, { timeout: 10000 });
         await this.page.waitForTimeout(500);
         break;
 
       case 'type':
-        await this.page.type(step.selector, step.value, { delay: 50, timeout: 10000 });
+        // Substitute auth placeholders if credentials are available
+        let typeValue = step.value || '';
+        if (this.credentials) {
+          if (typeValue === '{auth_username}') {
+            typeValue = this.credentials.username || this.credentials.email;
+            logger.info(`  🔑 Substituting {auth_username} with: ${typeValue}`);
+          } else if (typeValue === '{auth_password}') {
+            typeValue = this.credentials.password;
+            logger.info(`  🔑 Substituting {auth_password} with configured password`);
+          }
+        } else if (typeValue.includes('{auth_')) {
+          logger.warn(`  ⚠️ Found placeholder "${typeValue}" but no credentials available for substitution!`);
+        }
+        await this.page.type(step.selector, typeValue, { delay: 50, timeout: 10000 });
         await this.page.waitForTimeout(500);
         break;
 

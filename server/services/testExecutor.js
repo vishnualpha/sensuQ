@@ -260,7 +260,12 @@ class TestExecutor {
         let selfHealed = false;
 
         try {
-          const navigator = new PathNavigator(page);
+          // Pass credentials to PathNavigator for auth placeholder substitution
+          const credentials = this.testConfig.auth_username ? {
+            username: this.testConfig.auth_username,
+            password: this.testConfig.auth_password
+          } : null;
+          const navigator = new PathNavigator(page, credentials);
 
           if (testCase.prerequisite_steps && testCase.prerequisite_steps.length > 0) {
             logger.info(`  🔧 Executing ${testCase.prerequisite_steps.length} prerequisite steps...`);
@@ -358,7 +363,8 @@ class TestExecutor {
 
           // Attempt self-healing
           try {
-            await this.handlePopupsAndModals(page);
+            // DO NOT call handlePopupsAndModals here - it would close modals opened by the test!
+            // Self-healing should work with the current page state, including open modals
             const healingSucceeded = await this.attemptSelfHealing(page, testCase);
             if (healingSucceeded) {
               // Self-healing succeeded - mark test as passed with self_healed flag
@@ -378,8 +384,13 @@ class TestExecutor {
         if (testCase.cleanup_steps && testCase.cleanup_steps.length > 0) {
           logger.info(`  🧹 Executing ${testCase.cleanup_steps.length} cleanup steps...`);
           try {
-            const navigator = new PathNavigator(page);
-            await navigator.executeSteps(testCase.cleanup_steps);
+            // Pass credentials to cleanup navigator as well
+            const credentials = this.testConfig.auth_username ? {
+              username: this.testConfig.auth_username,
+              password: this.testConfig.auth_password
+            } : null;
+            const cleanupNavigator = new PathNavigator(page, credentials);
+            await cleanupNavigator.executeSteps(testCase.cleanup_steps);
             logger.info(`  ✅ Cleanup completed`);
           } catch (cleanupError) {
             logger.warn(`  ⚠️ Cleanup failed: ${cleanupError.message}`);
@@ -722,6 +733,18 @@ class TestExecutor {
   }
 
   async dismissModals(page) {
+    // Check if there's a login form visible on the page
+    // If yes, DO NOT dismiss any modals (it might be a login modal!)
+    try {
+      const hasPasswordField = await page.locator('input[type="password"]').isVisible({ timeout: 1000 }).catch(() => false);
+      if (hasPasswordField) {
+        logger.info(`Skipping modal dismissal - password field detected (likely login modal)`);
+        return;
+      }
+    } catch (error) {
+      // Continue with modal dismissal
+    }
+
     const closeSelectors = [
       'button:has-text("×")',
       'button:has-text("✕")',
@@ -751,13 +774,8 @@ class TestExecutor {
       }
     }
 
-    // Always try Escape key
-    try {
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(500);
-    } catch (error) {
-      // Ignore
-    }
+    // DO NOT use Escape key - it might close login modals!
+    // Removed: await page.keyboard.press('Escape');
   }
 
   async acceptCookies(page) {

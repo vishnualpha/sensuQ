@@ -12,20 +12,52 @@ class SPAStateDetector {
       const snapshot = await page.evaluate(() => {
         const mainContent = document.querySelector('main, [role="main"], #main, .main, #content, .content, #app, .app') || document.body;
 
-        const visibleModals = Array.from(document.querySelectorAll('[role="dialog"], .modal, .popup, [class*="modal"], [class*="dialog"]'))
+        // Enhanced modal detection - check for visibility and opacity
+        const visibleModals = Array.from(document.querySelectorAll('[role="dialog"], .modal, .popup, [class*="modal"], [class*="dialog"], [class*="overlay"], [aria-modal="true"]'))
           .filter(el => {
             const style = window.getComputedStyle(el);
-            return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            const rect = el.getBoundingClientRect();
+            return style.display !== 'none' &&
+                   style.visibility !== 'hidden' &&
+                   parseFloat(style.opacity) > 0.1 &&
+                   rect.width > 0 &&
+                   rect.height > 0;
+          });
+
+        // Detect newly visible fields (for multi-step forms)
+        const visibleInputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, select'))
+          .filter(el => {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.display !== 'none' &&
+                   style.visibility !== 'hidden' &&
+                   rect.width > 0 &&
+                   rect.height > 0;
           });
 
         const getElementSignature = (el) => {
           if (!el) return '';
+          const style = window.getComputedStyle(el);
           return {
             tag: el.tagName,
             classes: Array.from(el.classList).slice(0, 5),
             text: el.textContent?.substring(0, 200),
-            children: el.children.length
+            children: el.children.length,
+            visible: style.display !== 'none' && style.visibility !== 'hidden'
           };
+        };
+
+        // Get all visible elements, not just their count
+        const getVisibleElements = (selector) => {
+          return Array.from(document.querySelectorAll(selector))
+            .filter(el => {
+              const style = window.getComputedStyle(el);
+              const rect = el.getBoundingClientRect();
+              return style.display !== 'none' &&
+                     style.visibility !== 'hidden' &&
+                     rect.width > 0 &&
+                     rect.height > 0;
+            });
         };
 
         return {
@@ -38,11 +70,24 @@ class SPAStateDetector {
           modalCount: visibleModals.length,
           modalSignatures: visibleModals.map(getElementSignature),
           interactiveElements: {
-            buttons: document.querySelectorAll('button:not([disabled])').length,
-            links: document.querySelectorAll('a[href]').length,
-            inputs: document.querySelectorAll('input:not([disabled]):not([type="hidden"])').length,
-            forms: document.querySelectorAll('form').length
+            buttons: getVisibleElements('button:not([disabled])').length,
+            links: getVisibleElements('a[href]').length,
+            inputs: getVisibleElements('input:not([disabled]):not([type="hidden"])').length,
+            textareas: getVisibleElements('textarea:not([disabled])').length,
+            selects: getVisibleElements('select:not([disabled])').length,
+            forms: document.querySelectorAll('form').length,
+            // Track specific input types for better detection
+            passwordFields: getVisibleElements('input[type="password"]').length,
+            emailFields: getVisibleElements('input[type="email"]').length,
+            visibleFieldCount: visibleInputs.length
           },
+          // Track visible input field signatures for detecting dynamic fields
+          visibleFieldSignatures: visibleInputs.slice(0, 20).map(input => ({
+            name: input.name,
+            type: input.type,
+            id: input.id,
+            placeholder: input.placeholder
+          })),
           bodyClasses: Array.from(document.body.classList),
           timestamp: Date.now()
         };
@@ -130,14 +175,17 @@ class SPAStateDetector {
 
     changes.hasChanges = true;
 
+    // Priority 1: Modal opened (most important for login flows)
     if (!before.hasModal && after.hasModal) {
       changes.significant = true;
       changes.changeType = 'modal_opened';
       changes.description = `Modal/dialog appeared (${after.modalCount} modal(s))`;
       changes.details.modalCount = after.modalCount;
+      changes.details.hasPasswordField = after.interactiveElements.passwordFields > 0;
       return changes;
     }
 
+    // Priority 2: Modal closed
     if (before.hasModal && !after.hasModal) {
       changes.significant = true;
       changes.changeType = 'modal_closed';
@@ -145,6 +193,7 @@ class SPAStateDetector {
       return changes;
     }
 
+    // Priority 3: Route change (SPA navigation)
     if (after.pathname !== before.pathname) {
       changes.significant = true;
       changes.changeType = 'route_change';
@@ -154,6 +203,7 @@ class SPAStateDetector {
       return changes;
     }
 
+    // Priority 4: Hash change (anchor navigation)
     if (after.hash !== before.hash && after.hash) {
       changes.significant = true;
       changes.changeType = 'hash_change';
@@ -163,11 +213,33 @@ class SPAStateDetector {
       return changes;
     }
 
+    // Priority 5: Dynamic form fields appeared/disappeared (multi-step forms)
+    const fieldCountDiff = after.interactiveElements.visibleFieldCount - before.interactiveElements.visibleFieldCount;
+    if (Math.abs(fieldCountDiff) >= 2) {
+      changes.significant = true;
+      changes.changeType = 'dynamic_fields';
+      changes.description = `Form fields ${fieldCountDiff > 0 ? 'appeared' : 'disappeared'} (${Math.abs(fieldCountDiff)} fields)`;
+      changes.details.fieldCountDiff = fieldCountDiff;
+      changes.details.newFields = this.findNewFields(before.visibleFieldSignatures, after.visibleFieldSignatures);
+      return changes;
+    }
+
+    // Priority 6: Password/email field appeared (login form might have appeared)
+    if (before.interactiveElements.passwordFields === 0 && after.interactiveElements.passwordFields > 0) {
+      changes.significant = true;
+      changes.changeType = 'login_form_appeared';
+      changes.description = 'Password field appeared - possible login form';
+      changes.details.passwordFields = after.interactiveElements.passwordFields;
+      return changes;
+    }
+
+    // Priority 7: Major content change
     const contentChanged = JSON.stringify(before.mainContentSignature) !== JSON.stringify(after.mainContentSignature);
     if (contentChanged) {
       const childrenDiff = Math.abs(after.mainContentSignature.children - before.mainContentSignature.children);
 
-      if (childrenDiff >= 3) {
+      // Lowered threshold from 3 to 2 for better sensitivity
+      if (childrenDiff >= 2) {
         changes.significant = true;
         changes.changeType = 'content_change';
         changes.description = `Major content change detected (${childrenDiff} element difference)`;
@@ -176,17 +248,23 @@ class SPAStateDetector {
       }
     }
 
+    // Priority 8: Interactive elements changed
     const interactiveDiff = {
       buttons: after.interactiveElements.buttons - before.interactiveElements.buttons,
       inputs: after.interactiveElements.inputs - before.interactiveElements.inputs,
+      textareas: after.interactiveElements.textareas - before.interactiveElements.textareas,
+      selects: after.interactiveElements.selects - before.interactiveElements.selects,
       forms: after.interactiveElements.forms - before.interactiveElements.forms
     };
 
     const totalInteractiveDiff = Math.abs(interactiveDiff.buttons) +
                                  Math.abs(interactiveDiff.inputs) +
+                                 Math.abs(interactiveDiff.textareas) +
+                                 Math.abs(interactiveDiff.selects) +
                                  Math.abs(interactiveDiff.forms);
 
-    if (totalInteractiveDiff >= 5) {
+    // Lowered threshold from 5 to 3 for better sensitivity
+    if (totalInteractiveDiff >= 3) {
       changes.significant = true;
       changes.changeType = 'ui_change';
       changes.description = `Significant UI change (${totalInteractiveDiff} interactive elements changed)`;
@@ -196,6 +274,19 @@ class SPAStateDetector {
 
     changes.description = 'Minor state change detected';
     return changes;
+  }
+
+  /**
+   * Find new fields that appeared in the after state
+   */
+  findNewFields(beforeFields, afterFields) {
+    const beforeIds = new Set(beforeFields.map(f => f.id || f.name).filter(Boolean));
+    return afterFields
+      .filter(f => {
+        const identifier = f.id || f.name;
+        return identifier && !beforeIds.has(identifier);
+      })
+      .map(f => ({ name: f.name, type: f.type, id: f.id }));
   }
 
   async waitForStateSettlement(page, timeout = 3000) {
