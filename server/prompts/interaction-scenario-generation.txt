@@ -1,29 +1,56 @@
-You are generating test scenarios for a web page.
+Create realistic user interaction scenarios for this web page.
 
-CONTEXT:
-- URL: {url}
-- Title: {title}
-- Page Type: {pageType}
+=== PAGE CONTEXT ===
+URL: {url}
+Title: {title}
+Page Type: {pageType}
 
-INTERACTIVE ELEMENTS:
+=== INTERACTIVE ELEMENTS ===
 {interactiveElements}
 
-YOUR TASK:
-Create 3-8 realistic user interaction scenarios. Think like a real user.
+=== YOUR TASK ===
+Create 3-8 test scenarios that a real user would do on this page.
 
-RULES:
-1. Use ONLY selectors from the interactive elements list above
-2. Use standard CSS selectors (e.g., '#id', '.class', 'input[name="x"]')
-3. NO Playwright syntax like 'button:has-text' or 'link:has-text'
-4. Group related actions (e.g., fill form + submit)
-5. For auth fields, use {auth_username} and {auth_password} placeholders
+IMPORTANT: Consider modal interactions, multi-step forms, and dynamic content!
 
-PRIORITY:
-- high: Login, signup, checkout, search, critical navigation
-- medium: Filters, settings, secondary features
-- low: Cosmetic interactions, tooltips
+=== STRICT RULES ===
 
-EXAMPLE:
+RULE 1 - Selectors:
+✓ Use ONLY selectors from the INTERACTIVE ELEMENTS list above
+✓ Use standard CSS: '#id', '.class', 'input[name="x"]', 'button.classname'
+✗ NEVER use: 'button:has-text', 'link:has-text', ':has-text()', or any Playwright-specific syntax
+✗ NEVER use text-based selectors - only CSS attribute selectors
+
+RULE 2 - Form Field Values:
+✓ For username/email fields in LOGIN forms: use {auth_username}
+✓ For password fields in LOGIN forms: use {auth_password}
+✓ For OTHER forms, generate realistic test data based on field type:
+  - Name fields: "John Doe", "Jane Smith"
+  - Email fields: "test@example.com"
+  - Phone fields: "+1-555-0123"
+  - Address fields: "123 Main St"
+  - Number fields: "100", "25"
+  - Date fields: "2024-01-15"
+  - Text areas: "This is a test message"
+  - Search fields: meaningful search terms based on page context
+✓ Look at field name, placeholder, and label to determine appropriate value
+
+RULE 3 - Group Actions:
+✓ Combine related steps (fill form fields, then click submit)
+✗ Don't create separate scenarios for each field
+
+RULE 4 - Modal and Dynamic Content:
+✓ If a button opens a modal/popup, create a scenario that clicks it
+✓ If form fields appear conditionally, include steps to reveal them first
+✓ For multi-step forms, create scenarios that progress through all steps
+✓ Mark scenarios that open modals with "leadsToNewPage": false
+
+RULE 5 - Priority Levels:
+- high: Login (including modal logins), signup, checkout, search, main navigation
+- medium: Filters, settings, secondary features, modal triggers
+- low: Tooltips, cosmetic interactions
+
+=== EXAMPLE OUTPUT ===
 {
   "scenarios": [
     {
@@ -58,12 +85,104 @@ EXAMPLE:
       "expectedFinalOutcome": "User logged in successfully",
       "isTestable": true,
       "leadsToNewPage": true
+    },
+    {
+      "name": "Submit contact form",
+      "description": "Fill and submit contact form with test data",
+      "priority": "medium",
+      "steps": [
+        {
+          "action": "fill",
+          "elementType": "input",
+          "selector": "#name",
+          "textContent": "Name",
+          "value": "John Doe",
+          "expectedOutcome": "Name entered"
+        },
+        {
+          "action": "fill",
+          "elementType": "input",
+          "selector": "#email",
+          "textContent": "Email",
+          "value": "test@example.com",
+          "expectedOutcome": "Email entered"
+        },
+        {
+          "action": "fill",
+          "elementType": "textarea",
+          "selector": "#message",
+          "textContent": "Message",
+          "value": "This is a test message for form validation",
+          "expectedOutcome": "Message entered"
+        },
+        {
+          "action": "click",
+          "elementType": "button",
+          "selector": "#submit-btn",
+          "textContent": "Submit",
+          "expectedOutcome": "Form submitted"
+        }
+      ],
+      "expectedFinalOutcome": "Contact form submitted successfully",
+      "isTestable": true,
+      "leadsToNewPage": false
+    },
+    {
+      "name": "Open login modal and authenticate",
+      "description": "Click login button to open modal, then fill credentials",
+      "priority": "high",
+      "steps": [
+        {
+          "action": "click",
+          "elementType": "button",
+          "selector": "#login-button",
+          "textContent": "Login",
+          "expectedOutcome": "Login modal appears"
+        },
+        {
+          "action": "fill",
+          "elementType": "input",
+          "selector": "#modal-email",
+          "textContent": "Email",
+          "value": "{auth_username}",
+          "expectedOutcome": "Email entered in modal"
+        },
+        {
+          "action": "fill",
+          "elementType": "input",
+          "selector": "#modal-password",
+          "textContent": "Password",
+          "value": "{auth_password}",
+          "expectedOutcome": "Password entered in modal"
+        },
+        {
+          "action": "click",
+          "elementType": "button",
+          "selector": "#modal-submit",
+          "textContent": "Sign In",
+          "expectedOutcome": "User authenticated via modal"
+        }
+      ],
+      "expectedFinalOutcome": "User logged in via modal",
+      "isTestable": true,
+      "leadsToNewPage": false
     }
   ]
 }
 
-SPECIAL TOKENS:
-- Use {auth_username} for username/email fields
-- Use {auth_password} for password fields
+=== ACTION TYPES ===
+- "fill": Type text into input fields
+- "click": Click buttons, links, checkboxes
+- "select": Choose from dropdown menus
+- "hover": Hover over elements (use rarely)
+
+=== REMEMBER ===
+✓ Return ONLY valid JSON (no extra text)
+✓ Use exact selectors from the list above - CSS selectors only
+✓ Use {auth_username} and {auth_password} placeholders for login forms
+✓ Create scenarios for buttons that open modals/popups
+✓ Include multi-step workflows if form fields appear conditionally
+✗ NEVER use :has-text(), button:has-text(), or any Playwright-specific syntax
+✗ NEVER use text-based selectors - only CSS attribute selectors
 
 Return ONLY valid JSON.

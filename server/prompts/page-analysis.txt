@@ -1,64 +1,75 @@
-You are analyzing a web page to decide what to test and where to navigate next.
-{{#if businessContext}}
+Analyze this web page to find what to test and where to navigate next.
 
+{{#if businessContext}}
 BUSINESS CONTEXT: {{businessContext}}
 {{/if}}
 
-PAGE INFO:
-- URL: {{url}}
-- Title: {{title}}
-- Forms: {{formsCount}}, Buttons: {{buttonsCount}}, Inputs: {{inputsCount}}, Links: {{linksCount}}
-- Login form: {{hasLoginForm}}, Search: {{hasSearchForm}}, Multi-step form: {{hasMultiStepForm}}
+=== PAGE INFORMATION ===
+URL: {{url}}
+Title: {{title}}
+Elements: {{formsCount}} forms, {{buttonsCount}} buttons, {{inputsCount}} inputs, {{linksCount}} links
+Special: Login={{hasLoginForm}}, Search={{hasSearchForm}}, MultiStep={{hasMultiStepForm}}
 
-INTERACTIVE ELEMENTS ({{clickableElementsCount}} found):
-Each element has a unique ID [el_XXX] and selector. Reference these in your response.
-
+=== INTERACTIVE ELEMENTS ({{clickableElementsCount}} found) ===
+Each element has ID [el_XXX] and selector. Use these in your response.
 {{interactiveElements}}
 
-AVAILABLE LINKS FOR NAVIGATION:
+=== AVAILABLE LINKS ===
 {{availableLinks}}
 
-YOUR TASK:
-1. Identify 3-5 key interactions that reveal new content or navigate to new pages
-2. Use element IDs [el_XXX] or selectors from INTERACTIVE ELEMENTS above
-3. Focus on navigation, forms, buttons, and business-critical features
-4. **CRITICAL**: Identify ALL clickable elements that could navigate to new pages (links, buttons, menu items, tabs, etc.)
+=== YOUR TASKS ===
 
-IMPORTANT:
-- Reference elements by their ID (e.g., [el_1]) or provided selector
-- Modern apps use div/span as buttons - they are identified above
-- Consider element context (labels, placeholders) for better understanding
-- Look at ALL interactive elements, not just <a> tags - buttons, menu items, tabs can all navigate to new pages
+TASK 1: Find 3-5 key interactions
+- Pick interactions that show new content OR go to new pages OR open modals
+- Use element IDs like [el_1] or selectors from the list above
+- Focus on: navigation links, forms, buttons, modal triggers, important features
+- IMPORTANT: Include buttons that open login/signup modals
+- Include buttons that reveal additional form fields
 
-Return JSON:
+TASK 2: Find ALL links to follow
+- Look for: links, buttons, menu items, tabs that go to new pages
+- Include login buttons that open modals with forms
+- Include buttons that change page state (filters, toggles, accordions)
+- Modern websites use div/span as buttons - check all element types
+- DO NOT skip elements - list ALL that could navigate or change state
+
+RULES:
+✓ Only use element IDs and selectors from the INTERACTIVE ELEMENTS list
+✓ Buttons and divs can be navigation elements, not just <a> tags
+✓ If you see a modal or popup with a login form, include it
+✓ Look at element labels and placeholders to understand what they do
+
+=== OUTPUT FORMAT ===
+Return ONLY this JSON structure (no other text):
+
 {
   "pageType": "homepage|login|dashboard|form|other",
   "pageValue": "high|medium|low",
-  "priority": 1-10,
-  "businessRelevance": "brief explanation",
+  "priority": 5,
+  "businessRelevance": "one sentence explanation",
   "keyInteractions": [
     {
-      "description": "what to do",
-      "selector": "CSS selector from list",
+      "description": "short description of what this does",
+      "selector": "CSS selector from list above",
       "type": "click|fill|select",
-      "value": "optional value",
-      "expectedOutcome": "what happens",
+      "value": "value to use (if type is fill or select)",
+      "expectedOutcome": "what will happen",
       "priority": "high|medium|low"
     }
   ],
   "linksToFollow": [
     {
-      "text": "element text from INTERACTIVE ELEMENTS list",
-      "selector": "CSS selector from INTERACTIVE ELEMENTS list",
-      "elementId": "element ID like [el_1] from list",
-      "reason": "why valuable for discovering new pages",
+      "text": "text from INTERACTIVE ELEMENTS list",
+      "selector": "selector from INTERACTIVE ELEMENTS list",
+      "elementId": "[el_1]",
+      "reason": "why this link is valuable",
       "priority": "high|medium|low",
-      "estimatedPageType": "guess page type"
+      "estimatedPageType": "guess what page type it leads to"
     }
   ],
-  "testingOpportunities": ["test scenario 1", "test scenario 2"],
-  "obstacles": ["any popups, modals, or blockers"],
-  "recommendations": "brief strategy"
+  "testingOpportunities": ["test idea 1", "test idea 2"],
+  "obstacles": ["list any popups, modals, or blocking elements"],
+  "recommendations": "brief testing strategy"
 }
 
-Return ONLY valid JSON.
+IMPORTANT: Return ONLY valid JSON. No extra text before or after.
